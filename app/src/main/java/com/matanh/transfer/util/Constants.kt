@@ -10,4 +10,6 @@ object Constants {
     const val IP_PERMISSION_VALIDITY_MS = 60 * 60 * 1000L // 1 hour
 
     const val EXTRA_FOLDER_URI = "FOLDER_URI"
+    /** Written by FileServerService so QS tile / widget can show active state. */
+    const val PREF_SERVER_ACTIVE = "server_active"
 }

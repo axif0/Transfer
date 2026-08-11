@@ -12,11 +12,13 @@ import android.net.Uri
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.matanh.transfer.util.Constants
 import com.matanh.transfer.MainActivity
 import com.matanh.transfer.R
+import com.matanh.transfer.widget.ServerAppWidget
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
@@ -192,6 +194,19 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
      */
     fun shouldSkipIpApprovalForRemoteHost(remoteHost: String): Boolean {
         if (!internetSharingDesired) return false
+        return isLoopbackHost(remoteHost)
+    }
+
+    /**
+     * When Internet Sharing is on, treat loopback clients as the public tunnel:
+     * block upload/delete/PUT (read-only). LAN IPs keep full write access.
+     */
+    fun isInternetSharingReadOnlyFor(remoteHost: String): Boolean {
+        if (!internetSharingDesired) return false
+        return isLoopbackHost(remoteHost)
+    }
+
+    private fun isLoopbackHost(remoteHost: String): Boolean {
         val host = remoteHost.lowercase()
         return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "0:0:0:0:0:0:0:1"
     }
@@ -322,6 +337,7 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
             if (currentSharedFolderUri == null) {
                 _serverState.value = ServerState.Error("Shared folder not set.")
+                setServerActivePreference(false)
                 updateNotification()
                 return@launch
             }
@@ -329,6 +345,7 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                 DocumentFile.fromTreeUri(this@FileServerService, currentSharedFolderUri!!)
             if (baseDocFile == null || !baseDocFile.canRead()) {
                 _serverState.value = ServerState.Error("Shared folder not accessible.")
+                setServerActivePreference(false)
                 updateNotification()
                 return@launch
             }
@@ -340,6 +357,7 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                 if (ipAddress == null) {
                     _serverState.value = ServerState.AwaitNetwork
                     logger.e("Failed to get local IP address.")
+                    setServerActivePreference(false)
                     updateNotification()
                     return@launch
                 }
@@ -356,6 +374,7 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
                 _serverState.value = ServerState.Running(networkState, Constants.SERVER_PORT)
                 logger.i("Ktor Server started on $ipAddress:${Constants.SERVER_PORT}")
+                setServerActivePreference(true)
                 updateNotification()
                 restartTunnelIfDesired()
             } catch (e: Exception) {
@@ -372,6 +391,7 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                 ktorServer?.stop(1000, 2000)
                 ktorServer = null
                 internetSharingDesired = false
+                setServerActivePreference(false)
                 updateNotification()
             }
         }
@@ -392,11 +412,17 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                 ktorServer = null
                 _serverState.value = state
                 logger.i("Ktor Server stopped.")
+                setServerActivePreference(state is ServerState.Running)
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 if (state != ServerState.UserStopped) updateNotification() // if user stopped, the notification can be removed
             }
 
         }
+    }
+
+    private fun setServerActivePreference(active: Boolean) {
+        sharedPreferences.edit { putBoolean(Constants.PREF_SERVER_ACTIVE, active) }
+        ServerAppWidget.requestUpdate(this)
     }
 
     suspend fun requestIpApprovalFromClient(ipAddress: String): Boolean {

@@ -32,10 +32,12 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.httpMethod
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.request.receiveMultipart
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.request.receiveText
+import io.ktor.server.request.uri
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
@@ -95,7 +97,6 @@ val IpAddressApprovalPlugin = createApplicationPlugin(name = "IpAddressApprovalP
 
         // Quick Tunnel traffic arrives via cloudflared → 127.0.0.1. That is NOT the
         // friend's public IP. LAN IP approval must not block Internet Sharing on that basis.
-        // Password Basic Auth remains mandatory for public exposure.
         if (service.shouldSkipIpApprovalForRemoteHost(clientIp)) {
             logger.d("IP Approval: skipping for tunnel/loopback origin $clientIp")
             return@onCall
@@ -111,6 +112,35 @@ val IpAddressApprovalPlugin = createApplicationPlugin(name = "IpAddressApprovalP
                 logger.d("IP Approval: IP $clientIp approved.")
             }
         }
+    }
+}
+
+/**
+ * Internet Sharing is read-only on the tunnel path (loopback).
+ * Allows GET/HEAD/OPTIONS and POST /api/zip (download helper). Blocks upload/delete/PUT.
+ */
+val InternetSharingReadOnlyPlugin = createApplicationPlugin(name = "InternetSharingReadOnlyPlugin") {
+    val serviceProvider = application.attributes[KEY_SERVICE_PROVIDER]
+    onCall { call ->
+        val service = serviceProvider() ?: return@onCall
+        val clientIp = call.request.origin.remoteHost
+        if (!service.isInternetSharingReadOnlyFor(clientIp)) return@onCall
+
+        val method = call.request.httpMethod
+        if (method == HttpMethod.Get || method == HttpMethod.Head || method == HttpMethod.Options) {
+            return@onCall
+        }
+        // ZIP generation is a download convenience, not a write to the shared folder.
+        val path = call.request.uri.substringBefore('?')
+        if (method == HttpMethod.Post && (path == "/api/zip" || path.endsWith("/zip"))) {
+            return@onCall
+        }
+
+        logger.w("Internet Sharing read-only: blocked $method $path from $clientIp")
+        call.respond(
+            HttpStatusCode.Forbidden,
+            "Internet Sharing is read-only. Upload and delete are disabled on the public link."
+        )
     }
 }
 private val KEY_SERVICE_PROVIDER = AttributeKey<() -> FileServerService?>("ServiceProviderKey")
@@ -370,6 +400,7 @@ fun Application.ktorServer(
         }
     }
     install(IpAddressApprovalPlugin)
+    install(InternetSharingReadOnlyPlugin)
     install(ContentNegotiation) { json() }
 
     // Routing
