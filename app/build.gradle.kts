@@ -13,8 +13,8 @@ android {
         applicationId = "com.matanh.transfer"
         minSdk = 29
         targetSdk = 35
-        versionCode = 701
-        versionName = "0.7.1"
+        versionCode = 703
+        versionName = "0.7.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -101,9 +101,10 @@ dependencies {
     implementation(libs.ktor.server.call.logging.jvm)
     implementation(libs.timber)
     implementation(libs.androidx.activity)
+    implementation(libs.androidx.swiperefreshlayout)
 
-
-    testImplementation(libs.junit)
+    // QR Code generation
+    implementation(libs.zxing.core)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 

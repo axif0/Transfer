@@ -4,22 +4,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transfer App</title>
+    <title>Transfer</title>
     <link rel="stylesheet" href="/assets/style.css">
 </head>
 
 <body>
-    <header>
+    <div id="readonly-banner" class="readonly-banner" hidden>
+        Public link is <strong>read-only</strong> — download only. Upload and delete are disabled.
+    </div>
+
+    <header class="site-header sticky-header">
         <h1>Transfer</h1>
         <p>Manage your files wirelessly</p>
         <button id="theme-toggle" class="theme-toggle-button" aria-label="Toggle theme">
-            <!-- Sun icon for light mode, Moon for dark mode -->
             <span id="theme-icon">🌙</span>
         </button>
     </header>
 
     <main>
-        <section id="upload-section">
+        <section id="upload-section" class="upload-section">
             <div id="section-header-with-button" class="header-container">
                 <h2>Upload Files</h2>
                 <button id="paste-button" class="icon-button" title="Paste from Clipboard">
@@ -33,21 +36,23 @@
                 <p>Drag & drop files here or click to select</p>
                 <input type="file" id="file-input" multiple>
             </div>
-            <div id="upload-progress-container">
-                <!-- Upload progress items will be dynamically added here -->
-            </div>
         </section>
+
+        <div class="transfer-progress-dock">
+            <div id="upload-progress-container"></div>
+            <div id="download-progress-container"></div>
+        </div>
 
         <section id="files-section">
             <div id="files-header-container" class="header-container">
                 <h2>Available Files</h2>
                 <div id="files-actions">
+                    <input type="search" id="file-search" placeholder="Search files…" class="file-search">
                     <button id="download-all-zip-button" style="display: none;">Download All as Zip</button>
                 </div>
             </div>
 
-
-            <div class="table-container">
+            <div class="table-container desktop-only">
                 <table id="files-table">
                     <thead>
                         <tr>
@@ -56,23 +61,24 @@
                             <th>Size</th>
                             <th>Last Modified</th>
                             <th>Type</th>
-                            <th>Actions</th> <!-- Re-added Actions header -->
+                            <th>Actions</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <!-- File rows will be dynamically added here -->
-                    </tbody>
+                    <tbody></tbody>
                 </table>
             </div>
+
+            <div id="files-cards" class="files-cards mobile-only"></div>
             <p id="no-files-message" style="display:none;">No files found in the shared folder.</p>
         </section>
     </main>
+
+    <button id="fab-upload" class="fab-upload" title="Upload" aria-label="Upload files">＋</button>
 
     <footer>
         <p>Transfer App</p>
     </footer>
 
-    <!-- Custom Confirmation Modal HTML -->
     <div id="confirmation-modal-overlay" class="modal-overlay">
         <div class="modal-content">
             <p id="confirmation-modal-message"></p>
@@ -87,8 +93,17 @@
         </div>
     </div>
 
-    <script src="/assets/script.js"></script>
+    <div id="preview-modal-overlay" class="modal-overlay">
+        <div class="modal-content preview-modal">
+            <div class="preview-header">
+                <h3 id="preview-title">Preview</h3>
+                <button id="preview-close" class="icon-button" aria-label="Close">✕</button>
+            </div>
+            <div id="preview-body"></div>
+        </div>
+    </div>
 
+    <script src="/assets/script.js"></script>
 </body>
 
 </html>

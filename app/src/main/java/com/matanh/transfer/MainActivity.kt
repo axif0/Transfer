@@ -37,6 +37,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.textfield.TextInputLayout
 import com.matanh.transfer.server.FileServerService
 import com.matanh.transfer.server.ServerState
+import com.matanh.transfer.server.TransferProgress
 import com.matanh.transfer.server.TunnelState
 import com.matanh.transfer.ui.AboutActivity
 import com.matanh.transfer.ui.MainViewModel
@@ -50,6 +51,7 @@ import com.matanh.transfer.util.IpEntry
 import com.matanh.transfer.util.IpEntryAdapter
 import com.matanh.transfer.util.QRCodeGenerator
 import com.matanh.transfer.util.ShareHandler
+import android.widget.ProgressBar
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -78,6 +80,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvPublicUrl: TextView
     private lateinit var tvInternetSharingHint: TextView
     private lateinit var layoutPublicUrlActions: View
+    private lateinit var layoutInternetDetails: View
     private lateinit var btnCopyPublicUrl: Button
     private lateinit var btnSharePublicUrl: Button
     private lateinit var btnPublicQr: Button
@@ -85,6 +88,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStopInternetSharing: Button
     private lateinit var btnRetryInternetSharing: Button
 
+    private lateinit var cardTransferProgress: View
+    private lateinit var tvTransferProgressDetail: TextView
+    private lateinit var progressTransfer: ProgressBar
+    private lateinit var etSearchFiles: com.google.android.material.textfield.TextInputEditText
+    private lateinit var swipeRefreshFiles: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+
+    private var allFiles: List<FileItem> = emptyList()
     private var fileServerService: FileServerService? = null
     private var isServiceBound = false
     private var currentSelectedFolderUri: Uri? = null
@@ -102,6 +112,7 @@ class MainActivity : AppCompatActivity() {
             fileServerService?.activityResumed() // Notify service that UI is active and ready
             observeServerState()
             observeTunnelState()
+            observeTransferProgress()
             observeIpPermissionRequests()
             observePullRefresh()
         }
@@ -214,12 +225,19 @@ class MainActivity : AppCompatActivity() {
         tvPublicUrl = findViewById(R.id.tvPublicUrl)
         tvInternetSharingHint = findViewById(R.id.tvInternetSharingHint)
         layoutPublicUrlActions = findViewById(R.id.layoutPublicUrlActions)
+        layoutInternetDetails = findViewById(R.id.layoutInternetDetails)
         btnCopyPublicUrl = findViewById(R.id.btnCopyPublicUrl)
         btnSharePublicUrl = findViewById(R.id.btnSharePublicUrl)
         btnPublicQr = findViewById(R.id.btnPublicQr)
         btnStartInternetSharing = findViewById(R.id.btnStartInternetSharing)
         btnStopInternetSharing = findViewById(R.id.btnStopInternetSharing)
         btnRetryInternetSharing = findViewById(R.id.btnRetryInternetSharing)
+
+        cardTransferProgress = findViewById(R.id.cardTransferProgress)
+        tvTransferProgressDetail = findViewById(R.id.tvTransferProgressDetail)
+        progressTransfer = findViewById(R.id.progressTransfer)
+        etSearchFiles = findViewById(R.id.etSearchFiles)
+        swipeRefreshFiles = findViewById(R.id.swipeRefreshFiles)
     }
 
     private fun getIpURL(): String? {
@@ -331,9 +349,6 @@ class MainActivity : AppCompatActivity() {
                 toggleSelection(position)
             } else {
                 openWithFile(fileAdapter.getFileItem(position))
-                // Handle regular item click if needed (e.g., open file preview)
-                // For now, we can share it as a default action or do nothing
-                // shareFile(fileItem) // Example: share on single tap when not in CAB mode
             }
         }, onItemLongClick = { _, position ->
             if (actionMode == null) {
@@ -345,13 +360,60 @@ class MainActivity : AppCompatActivity() {
         rvFiles.layoutManager = LinearLayoutManager(this)
         rvFiles.adapter = fileAdapter
 
-        // Observe files LiveData from the ViewModel
-        viewModel.files.observe(this) { files ->
-            fileAdapter.updateFiles(files)
-            val isEmpty = files.isEmpty()
-            tvNoFilesMessage.visibility = if (isEmpty) View.VISIBLE else View.GONE
-            rvFiles.visibility = if (isEmpty) View.GONE else View.VISIBLE
+        swipeRefreshFiles.setOnRefreshListener {
+            currentSelectedFolderUri?.let { viewModel.loadFiles(it) }
+            swipeRefreshFiles.isRefreshing = false
         }
+
+        etSearchFiles.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                applyFileFilter(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
+
+        val touchHelper = androidx.recyclerview.widget.ItemTouchHelper(
+            object : androidx.recyclerview.widget.ItemTouchHelper.SimpleCallback(
+                0,
+                androidx.recyclerview.widget.ItemTouchHelper.LEFT or
+                    androidx.recyclerview.widget.ItemTouchHelper.RIGHT
+            ) {
+                override fun onMove(
+                    recyclerView: RecyclerView,
+                    viewHolder: RecyclerView.ViewHolder,
+                    target: RecyclerView.ViewHolder,
+                ): Boolean = false
+
+                override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                    val pos = viewHolder.adapterPosition
+                    if (pos == RecyclerView.NO_POSITION) return
+                    val item = fileAdapter.getFileItem(pos) ?: return
+                    if (direction == androidx.recyclerview.widget.ItemTouchHelper.LEFT) {
+                        confirmDeleteMultipleFiles(listOf(item))
+                    } else {
+                        shareMultipleFiles(listOf(item))
+                    }
+                    fileAdapter.notifyItemChanged(pos)
+                }
+            }
+        )
+        touchHelper.attachToRecyclerView(rvFiles)
+
+        viewModel.files.observe(this) { files ->
+            allFiles = files
+            applyFileFilter(etSearchFiles.text?.toString().orEmpty())
+        }
+    }
+
+    private fun applyFileFilter(query: String) {
+        val q = query.trim()
+        val filtered = if (q.isEmpty()) allFiles
+        else allFiles.filter { it.name.contains(q, ignoreCase = true) }
+        fileAdapter.updateFiles(filtered)
+        val isEmpty = filtered.isEmpty()
+        tvNoFilesMessage.visibility = if (isEmpty) View.VISIBLE else View.GONE
+        rvFiles.visibility = if (isEmpty) View.GONE else View.VISIBLE
     }
 
     private fun toggleSelection(position: Int) {
@@ -551,6 +613,7 @@ class MainActivity : AppCompatActivity() {
                     this, R.drawable.status_indicator_stopped
                 )
                 tvInternetSharingStatus.text = getString(R.string.internet_sharing_off)
+                layoutInternetDetails.visibility = View.GONE
                 tvPublicUrl.visibility = View.GONE
                 tvInternetSharingHint.visibility = View.GONE
                 layoutPublicUrlActions.visibility = View.GONE
@@ -565,6 +628,7 @@ class MainActivity : AppCompatActivity() {
                     this, R.drawable.status_indicator_running
                 )
                 tvInternetSharingStatus.text = getString(R.string.internet_sharing_starting)
+                layoutInternetDetails.visibility = View.VISIBLE
                 tvPublicUrl.visibility = View.GONE
                 tvInternetSharingHint.visibility = View.GONE
                 layoutPublicUrlActions.visibility = View.GONE
@@ -579,6 +643,7 @@ class MainActivity : AppCompatActivity() {
                     this, R.drawable.status_indicator_running
                 )
                 tvInternetSharingStatus.text = getString(R.string.internet_sharing_active)
+                layoutInternetDetails.visibility = View.VISIBLE
                 tvPublicUrl.text = state.publicUrl
                 tvPublicUrl.visibility = View.VISIBLE
                 tvInternetSharingHint.visibility = View.VISIBLE
@@ -595,6 +660,7 @@ class MainActivity : AppCompatActivity() {
                 )
                 tvInternetSharingStatus.text =
                     getString(R.string.internet_sharing_error) + ": " + state.message
+                layoutInternetDetails.visibility = View.VISIBLE
                 tvPublicUrl.visibility = View.GONE
                 tvInternetSharingHint.visibility = View.GONE
                 layoutPublicUrlActions.visibility = View.GONE
@@ -602,6 +668,55 @@ class MainActivity : AppCompatActivity() {
                 btnStopInternetSharing.visibility = View.GONE
                 btnRetryInternetSharing.visibility = View.VISIBLE
             }
+        }
+    }
+
+    private fun observeTransferProgress() {
+        if (!isServiceBound || fileServerService == null) return
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                fileServerService!!.transferProgress.collect { transfers ->
+                    renderTransferProgress(transfers)
+                }
+            }
+        }
+    }
+
+    private fun renderTransferProgress(transfers: List<TransferProgress>) {
+        if (transfers.isEmpty()) {
+            cardTransferProgress.visibility = View.GONE
+            return
+        }
+        cardTransferProgress.visibility = View.VISIBLE
+        val primary = transfers.first()
+        val dir = getString(
+            if (primary.direction == TransferProgress.Direction.DOWNLOAD) {
+                R.string.transfer_direction_download
+            } else {
+                R.string.transfer_direction_upload
+            }
+        )
+        val pct = primary.percent
+        val detail = if (pct != null) {
+            getString(R.string.transfer_progress_detail_pct, dir, primary.fileName, pct)
+        } else {
+            getString(
+                R.string.transfer_progress_detail_bytes,
+                dir,
+                primary.fileName,
+                FileUtils.formatFileSize(primary.bytesTransferred)
+            )
+        }
+        tvTransferProgressDetail.text = if (transfers.size > 1) {
+            detail + "  " + getString(R.string.transfer_more_count, transfers.size - 1)
+        } else {
+            detail
+        }
+        if (pct != null) {
+            progressTransfer.isIndeterminate = false
+            progressTransfer.progress = pct
+        } else {
+            progressTransfer.isIndeterminate = true
         }
     }
 

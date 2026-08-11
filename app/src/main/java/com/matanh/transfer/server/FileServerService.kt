@@ -54,6 +54,11 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
     val tunnelState: StateFlow<TunnelState>
         get() = cloudflareTunnel.state
 
+    private val activeTransfers = java.util.concurrent.ConcurrentHashMap<String, TransferProgress>()
+    private val _transferProgress = MutableStateFlow<List<TransferProgress>>(emptyList())
+    val transferProgress: StateFlow<List<TransferProgress>> = _transferProgress.asStateFlow()
+    @Volatile private var lastProgressNotifyMs = 0L
+
     /**
      * Session-only: true while user wants Internet Sharing active.
      * Not persisted — reboot/service restart never auto-exposes publicly.
@@ -156,6 +161,30 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
     fun isInternetSharingEnabled(): Boolean = internetSharingDesired
 
+    /**
+     * Report bytes for an in-flight transfer. Throttled notification updates.
+     */
+    fun reportTransferProgress(
+        id: String,
+        fileName: String,
+        direction: TransferProgress.Direction,
+        bytesTransferred: Long,
+        totalBytes: Long?,
+    ) {
+        activeTransfers[id] = TransferProgress(id, fileName, direction, bytesTransferred, totalBytes)
+        _transferProgress.value = activeTransfers.values.sortedBy { it.fileName }
+        val now = System.currentTimeMillis()
+        if (now - lastProgressNotifyMs >= 400L) {
+            lastProgressNotifyMs = now
+            updateNotification()
+        }
+    }
+
+    fun clearTransferProgress(id: String) {
+        activeTransfers.remove(id)
+        _transferProgress.value = activeTransfers.values.sortedBy { it.fileName }
+        updateNotification()
+    }
     /**
      * Start Cloudflare Quick Tunnel. Requires Ktor running.
      * Password is optional (settings); not required to start Internet Sharing.
@@ -535,14 +564,30 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
         val tunnel = if (::cloudflareTunnel.isInitialized) cloudflareTunnel.state.value else TunnelState.Stopped
         val internetActive = tunnel is TunnelState.Running || tunnel is TunnelState.Starting
+        val transfers = _transferProgress.value
+        val primaryTransfer = transfers.firstOrNull()
 
         val (title, text) = when (val state = _serverState.value) {
             is ServerState.Running -> {
                 val title = getString(R.string.file_server_notification_title)
-                val text = if (internetActive) {
-                    getString(R.string.file_server_notification_internet_sharing)
-                } else {
-                    getString(R.string.file_server_notification_text, state.hosts.mainIp, state.port)
+                val text = when {
+                    primaryTransfer != null -> {
+                        val dir = if (primaryTransfer.direction == TransferProgress.Direction.DOWNLOAD) {
+                            getString(R.string.transfer_direction_download)
+                        } else {
+                            getString(R.string.transfer_direction_upload)
+                        }
+                        val pct = primaryTransfer.percent
+                        if (pct != null) {
+                            getString(R.string.transfer_progress_notification, dir, primaryTransfer.fileName, pct)
+                        } else {
+                            getString(R.string.transfer_progress_notification_indeterminate, dir, primaryTransfer.fileName)
+                        }
+                    }
+                    internetActive -> getString(R.string.file_server_notification_internet_sharing)
+                    else -> getString(
+                        R.string.file_server_notification_text, state.hosts.mainIp, state.port
+                    )
                 }
                 title to text
             }
@@ -567,6 +612,16 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
             .setContentTitle(title).setContentText(text).setSmallIcon(R.drawable.ic_stat_name)
             .setContentIntent(pendingIntent).setOngoing(true)
             .addAction(R.drawable.ic_stop_black, getString(R.string.stop_server), stopPendingIntent)
+
+        if (primaryTransfer != null) {
+            val pct = primaryTransfer.percent
+            if (pct != null) {
+                builder.setProgress(100, pct, false)
+            } else {
+                builder.setProgress(0, 0, true)
+            }
+            builder.setOnlyAlertOnce(true)
+        }
 
         if (internetActive) {
             val stopTunnelIntent = Intent(this, FileServerService::class.java).apply {

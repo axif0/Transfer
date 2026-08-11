@@ -51,8 +51,8 @@ import io.ktor.server.routing.routing
 import io.ktor.util.AttributeKey
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.ByteWriteChannel
-import io.ktor.utils.io.copyTo
 import io.ktor.utils.io.jvm.javaio.toOutputStream
+import io.ktor.utils.io.readAvailable
 import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -61,7 +61,6 @@ import org.json.JSONObject
 import timber.log.Timber
 import java.io.OutputStream
 import java.net.URLEncoder
-import java.nio.channels.Channels
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -150,7 +149,8 @@ suspend fun handleFileDownload(
     call: RoutingCall,
     context: Context,
     baseDocumentFile: DocumentFile,
-    fileName: String
+    fileName: String,
+    progressReporter: FileServerService? = null,
 ) {
     // 1. URL Decode filename - done automatically by the browser
     // 2. Locate & validate
@@ -166,6 +166,7 @@ suspend fun handleFileDownload(
     val inputStream = context.contentResolver.openInputStream(target.uri)
         ?: return call.respond(HttpStatusCode.InternalServerError, "Could not open file stream.")
 
+    val transferId = "dl-${System.nanoTime()}-$fileName"
     // 5. Respond with full control over headers & streaming - should be fast.
     try {
         call.respond(object : OutgoingContent.WriteChannelContent() {
@@ -183,11 +184,31 @@ suspend fun handleFileDownload(
                 withContext(Dispatchers.IO) {
                     inputStream.use { stream ->
                         val buffer = ByteArray(256 * 1024) // 256 KB chunks
+                        var transferred = 0L
+                        var lastReport = 0L
                         while (true) {
                             val bytesRead = stream.read(buffer)
                             if (bytesRead == -1) break
                             channel.writeFully(buffer, 0, bytesRead)
+                            transferred += bytesRead
+                            if (progressReporter != null && transferred - lastReport >= 512 * 1024) {
+                                lastReport = transferred
+                                progressReporter.reportTransferProgress(
+                                    transferId,
+                                    fileName,
+                                    TransferProgress.Direction.DOWNLOAD,
+                                    transferred,
+                                    length,
+                                )
+                            }
                         }
+                        progressReporter?.reportTransferProgress(
+                            transferId,
+                            fileName,
+                            TransferProgress.Direction.DOWNLOAD,
+                            transferred,
+                            length,
+                        )
                     }
                 }
             }
@@ -199,6 +220,7 @@ suspend fun handleFileDownload(
             "Error serving file: ${e.localizedMessage}"
         )
     } finally {
+        progressReporter?.clearTransferProgress(transferId)
         inputStream.close()
     }
 }
@@ -209,7 +231,9 @@ suspend fun handleFileUpload(
     baseDocumentFile: DocumentFile,
     originalFileName: String,
     byteReadChannelProvider: suspend () -> ByteReadChannel,
-    notifyService: () -> Unit
+    notifyService: () -> Unit,
+    progressReporter: FileServerService? = null,
+    knownTotalBytes: Long? = null,
 ): Pair<String?, String?> {
 
     // 1. Sanitize and ensure unique filename
@@ -234,13 +258,39 @@ suspend fun handleFileUpload(
         logger.e("Failed to create document file for upload: $uniqueFileName")
         return null to "Failed to create file."
     }
+    val transferId = "ul-${System.nanoTime()}-$uniqueFileName"
     // 5) Stream upload with a buffer
     try {
         val byteReadChannel = byteReadChannelProvider()
 
         context.contentResolver.openOutputStream(newFileDoc.uri)?.use { outputStream ->
-            val channel = Channels.newChannel(outputStream)
-            byteReadChannel.copyTo(channel)
+            val buffer = ByteArray(256 * 1024)
+            var transferred = 0L
+            var lastReport = 0L
+            while (!byteReadChannel.isClosedForRead) {
+                val bytesRead = byteReadChannel.readAvailable(buffer, 0, buffer.size)
+                if (bytesRead < 0) break
+                if (bytesRead == 0) continue
+                outputStream.write(buffer, 0, bytesRead)
+                transferred += bytesRead
+                if (progressReporter != null && transferred - lastReport >= 512 * 1024) {
+                    lastReport = transferred
+                    progressReporter.reportTransferProgress(
+                        transferId,
+                        uniqueFileName,
+                        TransferProgress.Direction.UPLOAD,
+                        transferred,
+                        knownTotalBytes,
+                    )
+                }
+            }
+            progressReporter?.reportTransferProgress(
+                transferId,
+                uniqueFileName,
+                TransferProgress.Direction.UPLOAD,
+                transferred,
+                knownTotalBytes ?: transferred,
+            )
         } ?: throw Exception("Cannot open output stream for ${newFileDoc.uri}")
 
         logger.i("File '$uniqueFileName' uploaded successfully.")
@@ -250,6 +300,8 @@ suspend fun handleFileUpload(
         newFileDoc.delete() // Clean up
         logger.e("Error during file upload: $uniqueFileName")
         return null to e.localizedMessage
+    } finally {
+        progressReporter?.clearTransferProgress(transferId)
     }
 }
 
@@ -477,7 +529,9 @@ fun Application.ktorServer(
                         call.respond(HttpStatusCode.BadRequest, "File name missing.")
                         return@get
                     }
-                    handleFileDownload(call, applicationContext, baseDocumentFile, fileNameEncoded)
+                    handleFileDownload(
+                        call, applicationContext, baseDocumentFile, fileNameEncoded, fileServerService
+                    )
                 }
                 get("/zip") {
                     handleZipDownload(call, applicationContext, baseDocumentFile,null)
@@ -505,7 +559,8 @@ fun Application.ktorServer(
                                         baseDocumentFile = baseDocumentFile,
                                         originalFileName = originalFileName,
                                         byteReadChannelProvider = { part.provider() },
-                                        notifyService = { fileServerService.notifyFilePushed() }
+                                        notifyService = { fileServerService.notifyFilePushed() },
+                                        progressReporter = fileServerService,
                                     )
                                     if (fileName != null) {
                                         uploadedFileNames.add(fileName)
@@ -601,7 +656,9 @@ fun Application.ktorServer(
                     baseDocumentFile = baseDocumentFile,
                     originalFileName = fileName,
                     byteReadChannelProvider = { call.receiveChannel() },
-                    notifyService = { fileServerService.notifyFilePushed() }
+                    notifyService = { fileServerService.notifyFilePushed() },
+                    progressReporter = fileServerService,
+                    knownTotalBytes = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull(),
                 )
                 if (uploadedFileName != null) {
                     call.respond(
@@ -621,7 +678,9 @@ fun Application.ktorServer(
                     call.respond(HttpStatusCode.BadRequest, "Filename missing in path.")
                     return@get
                 }
-                handleFileDownload(call, applicationContext, baseDocumentFile, fileNameEncoded)
+                handleFileDownload(
+                    call, applicationContext, baseDocumentFile, fileNameEncoded, fileServerService
+                )
             }
 
             delete("/{fileName}") {

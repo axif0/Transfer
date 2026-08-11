@@ -1,5 +1,6 @@
 package com.matanh.transfer.util
 
+import android.graphics.drawable.BitmapDrawable
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -12,49 +13,50 @@ import com.matanh.transfer.R
 
 class FileAdapter(
     private var files: List<FileItem>,
-    private val onItemClick: (FileItem, Int) -> Unit, // For regular clicks
-    private val onItemLongClick: (FileItem, Int) -> Boolean // For long clicks to start action mode
+    private val onItemClick: (FileItem, Int) -> Unit,
+    private val onItemLongClick: (FileItem, Int) -> Boolean,
 ) : RecyclerView.Adapter<FileAdapter.ViewHolder>() {
 
-    private val selectedItems = mutableSetOf<Int>() // Stores positions of selected items
+    private val selectedItems = mutableSetOf<Int>()
 
     inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvName: TextView = view.findViewById(R.id.tvFileName)
         val tvSize: TextView = view.findViewById(R.id.tvFileSize)
+        val ivIcon: ImageView = view.findViewById(R.id.ivFileIcon)
         val ivSelectionCheck: ImageView = view.findViewById(R.id.ivSelectionCheck)
-        val itemLayout: ConstraintLayout =
-            view as ConstraintLayout // Assuming root is ConstraintLayout
+        val itemLayout: ConstraintLayout = view as ConstraintLayout
+        var boundUri: android.net.Uri? = null
 
         fun bind(file: FileItem, position: Int, isSelected: Boolean) {
+            boundUri = file.uri
             tvName.text = file.name
             tvSize.text = FileUtils.formatFileSize(file.size)
+            ivIcon.setImageResource(FileTypeHelper.iconRes(file.name))
+            ivIcon.scaleType = ImageView.ScaleType.CENTER_INSIDE
 
+            if (FileTypeHelper.kindOf(file.name) == FileTypeHelper.Kind.IMAGE) {
+                FileTypeHelper.loadImageThumb(itemView.context, file.uri) { bmp ->
+                    if (boundUri == file.uri && bmp != null) {
+                        ivIcon.setImageDrawable(BitmapDrawable(itemView.resources, bmp))
+                        ivIcon.scaleType = ImageView.ScaleType.CENTER_CROP
+                    }
+                }
+            }
 
             if (isSelected) {
                 itemLayout.setBackgroundColor(
-                    ContextCompat.getColor(
-                        itemView.context,
-                        R.color.file_item_selected_background
-                    )
+                    ContextCompat.getColor(itemView.context, R.color.file_item_selected_background)
                 )
                 ivSelectionCheck.visibility = View.VISIBLE
             } else {
                 itemLayout.setBackgroundColor(
-                    ContextCompat.getColor(
-                        itemView.context,
-                        R.color.default_file_item_background
-                    )
+                    ContextCompat.getColor(itemView.context, R.color.default_file_item_background)
                 )
-
                 ivSelectionCheck.visibility = View.GONE
             }
 
-            itemView.setOnClickListener {
-                onItemClick(file, position)
-            }
-            itemView.setOnLongClickListener {
-                onItemLongClick(file, position)
-            }
+            itemView.setOnClickListener { onItemClick(file, position) }
+            itemView.setOnLongClickListener { onItemLongClick(file, position) }
         }
     }
 
@@ -71,41 +73,29 @@ class FileAdapter(
 
     fun updateFiles(newFiles: List<FileItem>) {
         files = newFiles
-        selectedItems.clear() // Clear selection on new data
+        selectedItems.clear()
         notifyDataSetChanged()
     }
 
     fun toggleSelection(position: Int) {
-        if (selectedItems.contains(position)) {
-            selectedItems.remove(position)
-        } else {
-            selectedItems.add(position)
-        }
+        if (selectedItems.contains(position)) selectedItems.remove(position)
+        else selectedItems.add(position)
         notifyItemChanged(position)
     }
 
-    fun getSelectedFileItems(): List<FileItem> {
-        return selectedItems.map { files[it] }
-    }
-
-    fun getSelectedItemCount(): Int {
-        return selectedItems.size
-    }
+    fun getSelectedFileItems(): List<FileItem> = selectedItems.map { files[it] }
+    fun getSelectedItemCount(): Int = selectedItems.size
 
     fun clearSelections() {
         selectedItems.clear()
-        notifyDataSetChanged() // To redraw all items to their non-selected state
-    }
-    fun getFileItem(position: Int): FileItem? {
-        return files.getOrNull(position)
+        notifyDataSetChanged()
     }
 
+    fun getFileItem(position: Int): FileItem? = files.getOrNull(position)
+
     fun selectAll() {
-        if (selectedItems.size == files.size) { // If all are selected, deselect all
-            selectedItems.clear()
-        } else { // Otherwise, select all
-            files.forEachIndexed { index, _ -> selectedItems.add(index) }
-        }
+        if (selectedItems.size == files.size) selectedItems.clear()
+        else files.forEachIndexed { index, _ -> selectedItems.add(index) }
         notifyDataSetChanged()
     }
 }

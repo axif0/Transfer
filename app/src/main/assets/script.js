@@ -2,46 +2,55 @@ document.addEventListener('DOMContentLoaded', () => {
     const dropZone = document.getElementById('drop-zone');
     const fileInput = document.getElementById('file-input');
     const filesTableBody = document.querySelector('#files-table tbody');
+    const filesCards = document.getElementById('files-cards');
     const uploadProgressContainer = document.getElementById('upload-progress-container');
+    const downloadProgressContainer = document.getElementById('download-progress-container');
     const noFilesMessage = document.getElementById('no-files-message');
     const themeToggleButton = document.getElementById('theme-toggle');
     const themeIcon = document.getElementById('theme-icon');
     const pasteButton = document.getElementById('paste-button');
     const downloadAllZipButton = document.getElementById('download-all-zip-button');
-
     const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    const fileSearch = document.getElementById('file-search');
+    const fabUpload = document.getElementById('fab-upload');
+    const readonlyBanner = document.getElementById('readonly-banner');
+    const previewOverlay = document.getElementById('preview-modal-overlay');
+    const previewTitle = document.getElementById('preview-title');
+    const previewBody = document.getElementById('preview-body');
+    const previewClose = document.getElementById('preview-close');
 
-
-
-    // Modal elements
     const confirmationModalOverlay = document.getElementById('confirmation-modal-overlay');
     const confirmationModalMessage = document.getElementById('confirmation-modal-message');
     const modalConfirmButton = document.getElementById('modal-confirm-button');
     const modalCancelButton = document.getElementById('modal-cancel-button');
     const doNotAskAgainCheckbox = document.getElementById('do-not-ask-again');
 
-    // --- Theme Toggle ---
+    let allFiles = [];
+    const isPublicTunnel = /\.trycloudflare\.com$/i.test(location.hostname);
+
+    if (isPublicTunnel) {
+        document.body.classList.add('readonly-mode');
+        readonlyBanner.hidden = false;
+    }
+
     function applyTheme(theme) {
         if (theme === 'dark') {
             document.body.classList.add('dark-mode');
-            themeIcon.textContent = '☀️'; // Sun icon for dark mode (to switch to light)
+            themeIcon.textContent = '☀️';
         } else {
             document.body.classList.remove('dark-mode');
-            themeIcon.textContent = '🌙'; // Moon icon for light mode (to switch to dark)
+            themeIcon.textContent = '🌙';
         }
     }
 
-    // Load theme preference from localStorage
     const savedTheme = localStorage.getItem('theme');
     if (savedTheme) {
         applyTheme(savedTheme);
     } else {
-        // Detect system preference for dark or light mode
         const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
         applyTheme(prefersDark ? 'dark' : 'light');
     }
 
-    // Toggle theme on button click
     themeToggleButton.addEventListener('click', () => {
         const currentTheme = document.body.classList.contains('dark-mode') ? 'dark' : 'light';
         const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
@@ -49,92 +58,272 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('theme', newTheme);
     });
 
-    // --- Custom Confirmation Modal Logic ---
     let currentConfirmCallback = null;
 
-    /**
-     * Shows a custom confirmation modal.
-     * @param {string} message The message to display in the modal.
-     * @param {function} onConfirm Callback function to execute if the user confirms.
-     */
     function showConfirmModal(message, onConfirm) {
         confirmationModalMessage.textContent = message;
-        currentConfirmCallback = onConfirm; // Store the callback
-        doNotAskAgainCheckbox.checked = false; // Reset checkbox state every time modal is opened
-
-        confirmationModalOverlay.classList.add('active'); // Show modal
-
-        // Ensure previous listeners are removed to prevent multiple calls
+        currentConfirmCallback = onConfirm;
+        doNotAskAgainCheckbox.checked = false;
+        confirmationModalOverlay.classList.add('active');
         modalConfirmButton.onclick = null;
         modalCancelButton.onclick = null;
 
         modalConfirmButton.onclick = () => {
             if (doNotAskAgainCheckbox.checked) {
-                localStorage.setItem('doNotAskAgainDelete', 'true'); // Set preference
+                localStorage.setItem('doNotAskAgainDelete', 'true');
             }
-            if (currentConfirmCallback) {
-                currentConfirmCallback(true);
-            }
+            if (currentConfirmCallback) currentConfirmCallback(true);
             hideConfirmModal();
         };
 
         modalCancelButton.onclick = () => {
-            if (currentConfirmCallback) {
-                currentConfirmCallback(false); // Indicate cancellation
-            }
+            if (currentConfirmCallback) currentConfirmCallback(false);
             hideConfirmModal();
         };
 
-        // Allow clicking outside to close
         confirmationModalOverlay.addEventListener('click', (event) => {
             if (event.target === confirmationModalOverlay) {
-                if (currentConfirmCallback) {
-                    currentConfirmCallback(false); // Indicate cancellation
-                }
+                if (currentConfirmCallback) currentConfirmCallback(false);
                 hideConfirmModal();
             }
-        }, { once: true }); // Use once to prevent multiple bindings
+        }, { once: true });
     }
 
     function hideConfirmModal() {
         confirmationModalOverlay.classList.remove('active');
-        currentConfirmCallback = null; // Clear the callback
+        currentConfirmCallback = null;
     }
 
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
 
-    // --- File Listing ---
+    function fileExt(name) {
+        const i = name.lastIndexOf('.');
+        return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
+    }
+
+    function isImage(name) {
+        return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(fileExt(name));
+    }
+
+    function isText(name) {
+        return ['txt', 'md', 'json', 'xml', 'csv', 'log', 'kt', 'java', 'js', 'ts', 'css', 'html', 'py', 'sh', 'yml', 'yaml', 'toml', 'ini', 'conf'].includes(fileExt(name));
+    }
+
+    function typeEmoji(name) {
+        const e = fileExt(name);
+        if (isImage(name)) return '🖼️';
+        if (['mp4', 'mkv', 'webm', 'mov', 'avi'].includes(e)) return '🎬';
+        if (['mp3', 'wav', 'flac', 'ogg', 'm4a'].includes(e)) return '🎵';
+        if (['pdf'].includes(e)) return '📄';
+        if (['zip', 'rar', '7z', 'tar', 'gz'].includes(e)) return '📦';
+        if (isText(name)) return '📝';
+        return '📁';
+    }
+
+    function createProgressItem(label, container) {
+        const progressItem = document.createElement('div');
+        progressItem.className = 'progress-bar-item';
+        const fileNameSpan = document.createElement('span');
+        fileNameSpan.textContent = label;
+        const progressBar = document.createElement('div');
+        progressBar.className = 'progress-bar';
+        const progressBarFill = document.createElement('div');
+        progressBarFill.className = 'progress-bar-fill';
+        const progressStatus = document.createElement('span');
+        progressStatus.className = 'progress-bar-status';
+        progressBar.appendChild(progressBarFill);
+        progressItem.appendChild(fileNameSpan);
+        progressItem.appendChild(progressBar);
+        progressItem.appendChild(progressStatus);
+        container.prepend(progressItem);
+        return { progressItem, progressBarFill, progressStatus };
+    }
+
+    function downloadWithProgress(url, fileName) {
+        const { progressItem, progressBarFill, progressStatus } =
+            createProgressItem(`↓ ${fileName}: `, downloadProgressContainer || uploadProgressContainer);
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.responseType = 'blob';
+
+        xhr.addEventListener('progress', (event) => {
+            if (event.lengthComputable) {
+                const pct = (event.loaded / event.total) * 100;
+                progressBarFill.style.width = pct.toFixed(2) + '%';
+                progressStatus.textContent = `${pct.toFixed(0)}%`;
+            } else {
+                progressStatus.textContent = formatBytes(event.loaded);
+            }
+        });
+
+        xhr.addEventListener('load', () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                progressBarFill.style.backgroundColor = 'var(--success-color)';
+                progressStatus.textContent = 'Done';
+                const blobUrl = URL.createObjectURL(xhr.response);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(blobUrl);
+                setTimeout(() => progressItem.remove(), 2500);
+            } else {
+                progressBarFill.style.backgroundColor = 'var(--error-color)';
+                progressStatus.textContent = `Error: ${xhr.status}`;
+            }
+        });
+
+        xhr.addEventListener('error', () => {
+            progressBarFill.style.backgroundColor = 'var(--error-color)';
+            progressStatus.textContent = 'Network Error';
+        });
+
+        xhr.send();
+    }
+
+    function openPreview(file) {
+        previewTitle.textContent = file.name;
+        previewBody.innerHTML = '';
+        previewOverlay.classList.add('active');
+
+        if (isImage(file.name)) {
+            const img = document.createElement('img');
+            img.src = file.downloadUrl;
+            img.alt = file.name;
+            previewBody.appendChild(img);
+            return;
+        }
+
+        if (isText(file.name)) {
+            previewBody.textContent = 'Loading…';
+            fetch(file.downloadUrl)
+                .then(r => r.text())
+                .then(text => {
+                    const pre = document.createElement('pre');
+                    pre.textContent = text.length > 200000 ? text.slice(0, 200000) + '\n… (truncated)' : text;
+                    previewBody.innerHTML = '';
+                    previewBody.appendChild(pre);
+                })
+                .catch(() => {
+                    previewBody.textContent = 'Could not load preview.';
+                });
+            return;
+        }
+
+        previewBody.textContent = 'No preview for this file type. Use Download.';
+    }
+
+    function closePreview() {
+        previewOverlay.classList.remove('active');
+        previewBody.innerHTML = '';
+    }
+
+    previewClose.addEventListener('click', closePreview);
+    previewOverlay.addEventListener('click', (e) => {
+        if (e.target === previewOverlay) closePreview();
+    });
+
+    function makeActionIcons(file) {
+        const actionIconsContainer = document.createElement('div');
+        actionIconsContainer.className = 'action-icons-container';
+
+        if (isImage(file.name) || isText(file.name)) {
+            const previewBtn = document.createElement('button');
+            previewBtn.className = 'icon-button';
+            previewBtn.title = `Preview ${file.name}`;
+            previewBtn.textContent = '👁';
+            previewBtn.onclick = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openPreview(file);
+            };
+            actionIconsContainer.appendChild(previewBtn);
+        }
+
+        const downloadLink = document.createElement('a');
+        downloadLink.href = '#';
+        downloadLink.className = 'icon-button download-icon';
+        downloadLink.title = `Download ${file.name}`;
+        downloadLink.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                <path d="M12 16L7 11H11V4H13V11H17L12 16ZM20 18H4V20H20V18Z"/>
+            </svg>
+        `;
+        downloadLink.onclick = (event) => {
+            event.preventDefault();
+            downloadWithProgress(file.downloadUrl, file.name);
+        };
+        actionIconsContainer.appendChild(downloadLink);
+
+        if (!isPublicTunnel) {
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'icon-button delete-icon';
+            deleteButton.title = `Delete ${file.name}`;
+            deleteButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12ZM19 4h-3.5l-1-1h-5l-1 1H5V6h14V4Z"/>
+                </svg>
+            `;
+            deleteButton.onclick = (event) => {
+                event.stopPropagation();
+                confirmDeleteFile(file.name);
+            };
+            actionIconsContainer.appendChild(deleteButton);
+        }
+
+        return actionIconsContainer;
+    }
+
     async function fetchFiles() {
         try {
             const response = await fetch('/api/files');
             if (!response.ok) {
                 const errorText = await response.text();
                 console.error('Error fetching files:', response.status, errorText);
-                filesTableBody.innerHTML = `<tr><td colspan="5" style="color: var(--error-color);">Error loading files: ${errorText}</td></tr>`;
+                filesTableBody.innerHTML = `<tr><td colspan="6" style="color: var(--error-color);">Error loading files: ${errorText}</td></tr>`;
+                filesCards.innerHTML = '';
                 noFilesMessage.style.display = 'none';
-                downloadAllZipButton.style.display = 'none'; // Hide button on error
+                downloadAllZipButton.style.display = 'none';
                 return;
             }
             const data = await response.json();
-            renderFiles(data.files);
+            allFiles = data.files || [];
+            applyFilter();
         } catch (error) {
             console.error('Failed to fetch files:', error);
-            filesTableBody.innerHTML = `<tr><td colspan="5" style="color: var(--error-color);">Could not connect to server or error fetching files.</td></tr>`;
+            filesTableBody.innerHTML = `<tr><td colspan="6" style="color: var(--error-color);">Could not connect to server or error fetching files.</td></tr>`;
+            filesCards.innerHTML = '';
             noFilesMessage.style.display = 'none';
             downloadAllZipButton.style.display = 'none';
-
         }
     }
 
+    function applyFilter() {
+        const q = (fileSearch?.value || '').trim().toLowerCase();
+        const filtered = q ? allFiles.filter(f => f.name.toLowerCase().includes(q)) : allFiles;
+        renderFiles(filtered);
+    }
+
     function renderFiles(files) {
-        filesTableBody.innerHTML = ''; // Clear existing files
-        // clear selected
+        filesTableBody.innerHTML = '';
+        filesCards.innerHTML = '';
         selectAllCheckbox.checked = false;
         selectAllCheckbox.indeterminate = false;
         updateDownloadButtonLabel();
 
         if (!files || files.length === 0) {
             noFilesMessage.style.display = 'block';
-            downloadAllZipButton.style.display = 'none'; // Hide button if no files
+            downloadAllZipButton.style.display = 'none';
             return;
         }
         noFilesMessage.style.display = 'none';
@@ -142,10 +331,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         files.forEach(file => {
             const row = filesTableBody.insertRow();
-            // Dynamically add data attributes for easy access
             row.dataset.fileName = file.name;
 
-            // Checkbox:select
             const checkCell = row.insertCell();
             checkCell.dataset.label = 'Select';
             const checkbox = document.createElement('input');
@@ -154,7 +341,6 @@ document.addEventListener('DOMContentLoaded', () => {
             checkbox.dataset.fileName = file.name;
             checkCell.appendChild(checkbox);
 
-            // Add data-label attributes for responsive CSS
             const nameCell = row.insertCell();
             nameCell.textContent = file.name;
             nameCell.dataset.label = 'Name';
@@ -171,120 +357,108 @@ document.addEventListener('DOMContentLoaded', () => {
             typeCell.textContent = file.type;
             typeCell.dataset.label = 'Type';
 
-            // Add the action icons container to the last cell
             const actionsCell = row.insertCell();
             actionsCell.dataset.label = 'Actions';
-            actionsCell.style.textAlign = 'right'; // Align icons to the right
+            actionsCell.style.textAlign = 'right';
+            actionsCell.appendChild(makeActionIcons(file));
 
-            const actionIconsContainer = document.createElement('div');
-            actionIconsContainer.className = 'action-icons-container';
+            // Mobile card
+            const card = document.createElement('div');
+            card.className = 'file-card';
+            card.dataset.fileName = file.name;
 
-            // Download Icon
-            const downloadLink = document.createElement('a');
-            downloadLink.href = file.downloadUrl;
-            downloadLink.setAttribute('download', file.name); // Suggest filename for download
-            downloadLink.className = 'icon-button download-icon';
-            downloadLink.title = `Download ${file.name}`;
-            downloadLink.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                        <path d="M12 16L7 11H11V4H13V11H17L12 16ZM20 18H4V20H20V18Z"/>
-                    </svg>
-                `;
-            actionIconsContainer.appendChild(downloadLink);
+            if (isImage(file.name)) {
+                const img = document.createElement('img');
+                img.className = 'file-card-thumb';
+                img.src = file.downloadUrl;
+                img.alt = '';
+                img.loading = 'lazy';
+                card.appendChild(img);
+            } else {
+                const icon = document.createElement('div');
+                icon.className = 'file-card-icon';
+                icon.textContent = typeEmoji(file.name);
+                card.appendChild(icon);
+            }
 
-            // Delete Icon
-            const deleteButton = document.createElement('button');
-            deleteButton.className = 'icon-button delete-icon';
-            deleteButton.title = `Delete ${file.name}`;
-            deleteButton.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-                        <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12ZM19 4h-3.5l-1-1h-5l-1 1H5V6h14V4Z"/>
-                    </svg>
-                `;
-            deleteButton.onclick = (event) => {
-                event.stopPropagation(); // Prevent row click from interfering if any
-                confirmDeleteFile(file.name);
-            };
-            actionIconsContainer.appendChild(deleteButton);
-
-            actionsCell.appendChild(actionIconsContainer);
+            const body = document.createElement('div');
+            body.className = 'file-card-body';
+            const nameEl = document.createElement('div');
+            nameEl.className = 'file-card-name';
+            nameEl.textContent = file.name;
+            const meta = document.createElement('div');
+            meta.className = 'file-card-meta';
+            meta.textContent = `${file.formattedSize || formatBytes(file.size)} · ${file.lastModified || ''}`;
+            const actions = document.createElement('div');
+            actions.className = 'file-card-actions';
+            actions.appendChild(makeActionIcons(file));
+            body.appendChild(nameEl);
+            body.appendChild(meta);
+            body.appendChild(actions);
+            card.appendChild(body);
+            filesCards.appendChild(card);
         });
     }
 
     function confirmDeleteFile(fileName) {
-        // Check localStorage preference first
+        if (isPublicTunnel) return;
         const doNotAskAgain = localStorage.getItem('doNotAskAgainDelete') === 'true';
-
         if (doNotAskAgain) {
-            deleteFile(fileName); // Proceed directly if preference is set
+            deleteFile(fileName);
         } else {
-            showConfirmModal(`Delete "${fileName}"?`, (confirmed) => { // Shorter message
-                if (confirmed) {
-                    deleteFile(fileName);
-                }
+            showConfirmModal(`Delete "${fileName}"?`, (confirmed) => {
+                if (confirmed) deleteFile(fileName);
             });
         }
     }
+
     function showError(err) {
         const errorMsg = document.createElement('p');
         errorMsg.textContent = err;
         errorMsg.style.color = 'var(--error-color)';
         errorMsg.style.marginTop = '10px';
         errorMsg.style.textAlign = 'center';
-        uploadProgressContainer.appendChild(errorMsg); // Temporary display area
-        setTimeout(() => errorMsg.remove(), 5000); // Remove after 5 seconds
-
+        uploadProgressContainer.appendChild(errorMsg);
+        setTimeout(() => errorMsg.remove(), 5000);
     }
 
     async function deleteFile(fileName) {
         try {
             const response = await fetch('/api/delete', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ filename: fileName })
             });
             const result = await response.json();
             if (response.ok) {
-                // Update the specific row
-                const deletedRow = filesTableBody.querySelector(`[data-file-name="${fileName}"]`);
-                if (deletedRow) {
-                    deletedRow.remove();
-                }
-                if (filesTableBody.children.length === 0) {
-                    noFilesMessage.style.display = 'block';
-                    downloadAllZipButton.style.display = 'none';
-                }
-                updateDownloadButtonLabel()
-                // Optionally show a temporary success message
+                allFiles = allFiles.filter(f => f.name !== fileName);
+                applyFilter();
                 console.log(`Successfully deleted: ${fileName}`);
             } else {
-                // Using a custom message display instead of alert
                 console.error(`Error deleting file: ${result.error || 'Unknown error'}`);
-
-                showError(
-                    `Failed to delete ${fileName}: ${result.error || 'Unknown error'}`
-                )
-
+                showError(`Failed to delete ${fileName}: ${result.error || 'Unknown error'}`);
             }
         } catch (error) {
             console.error('Failed to send delete request:', error);
-            showError(
-                `Failed to send delete request for "${fileName}". Please check network.`
-            )
+            showError(`Failed to send delete request for "${fileName}". Please check network.`);
         }
     }
 
+    function openFilePicker() {
+        if (isPublicTunnel) return;
+        fileInput.click();
+    }
 
-    // --- Drag and Drop & File Upload ---
+    if (fabUpload) {
+        fabUpload.addEventListener('click', openFilePicker);
+    }
+
     dropZone.addEventListener('click', (event) => {
-        if (event.target !== fileInput) { // only click if the click only fall under the dropzone
+        if (event.target !== fileInput) {
             event.stopPropagation();
-            fileInput.click()
+            fileInput.click();
         }
-    }
-    );
+    });
 
     dropZone.addEventListener('dragover', (event) => {
         event.preventDefault();
@@ -298,57 +472,35 @@ document.addEventListener('DOMContentLoaded', () => {
     dropZone.addEventListener('drop', (event) => {
         event.preventDefault();
         dropZone.classList.remove('dragover');
+        if (isPublicTunnel) return;
         const files = event.dataTransfer.files;
         if (files.length > 0) {
-            // validate there are no folders.
             if (!([...event.dataTransfer.items].every(item => item.webkitGetAsEntry()?.isFile))) {
                 showError("Folders aren't supported. Compress them as ZIP first.");
-                return
+                return;
             }
-
             handleFiles(files);
         }
     });
 
     fileInput.addEventListener('change', (event) => {
         const files = event.target.files;
-        if (files.length > 0) {
-            handleFiles(files);
-        }
-        // Clear the file input so the same file can be selected again
+        if (files.length > 0) handleFiles(files);
         event.target.value = '';
     });
 
     function handleFiles(files) {
-        Array.from(files).forEach(file => {
-            uploadFile(file);
-        });
+        Array.from(files).forEach(file => uploadFile(file));
     }
 
     function uploadFile(file) {
+        if (isPublicTunnel) return;
         const formData = new FormData();
         formData.append('file', file, file.name);
 
         const xhr = new XMLHttpRequest();
-
-        // Create progress display for this file
-        const progressItem = document.createElement('div');
-        progressItem.className = 'progress-bar-item';
-        const fileNameSpan = document.createElement('span');
-        fileNameSpan.textContent = `${file.name} (${formatBytes(file.size)}): `;
-        const progressBar = document.createElement('div');
-        progressBar.className = 'progress-bar';
-        const progressBarFill = document.createElement('div');
-        progressBarFill.className = 'progress-bar-fill';
-        const progressStatus = document.createElement('span');
-        progressStatus.className = 'progress-bar-status';
-
-        progressBar.appendChild(progressBarFill);
-        progressItem.appendChild(fileNameSpan);
-        progressItem.appendChild(progressBar);
-        progressItem.appendChild(progressStatus);
-        uploadProgressContainer.prepend(progressItem); // Add new progress at the top
-
+        const { progressItem, progressBarFill, progressStatus } =
+            createProgressItem(`${file.name} (${formatBytes(file.size)}): `, uploadProgressContainer);
 
         xhr.upload.addEventListener('progress', (event) => {
             if (event.lengthComputable) {
@@ -362,13 +514,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (xhr.status >= 200 && xhr.status < 300) {
                 progressBarFill.style.backgroundColor = 'var(--success-color)';
                 progressStatus.textContent = `Success: ${xhr.responseText}`;
-                setTimeout(() => progressItem.remove(), 3000); // Remove success item after 3 seconds
-                fetchFiles(); // Refresh file list after successful upload
+                setTimeout(() => progressItem.remove(), 3000);
+                fetchFiles();
             } else {
                 progressBarFill.style.backgroundColor = 'var(--error-color)';
                 progressStatus.textContent = `Error: ${xhr.status} - ${xhr.responseText || 'Upload failed'}`;
                 console.error('Upload failed:', xhr.status, xhr.responseText);
-                // Keep error message visible or provide a clear indication
             }
         });
 
@@ -382,83 +533,58 @@ document.addEventListener('DOMContentLoaded', () => {
         xhr.send(formData);
     }
 
-    /**
-     * Formats bytes into a human-readable string (e.g., 1.23 MB).
-     * @param {number} bytes The number of bytes.
-     * @param {number} decimals The number of decimal places for the output.
-     * @returns {string} Formatted size string.
-     * This is, of course, GPT. If you said you have more than 1TB, I won't believe you, and YB is a trillion TB. :)
-     */
-    function formatBytes(bytes, decimals = 2) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const dm = decimals < 0 ? 0 : decimals;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-    }
-
     pasteButton.addEventListener('click', async () => {
+        if (isPublicTunnel) return;
         try {
             const text = await navigator.clipboard.readText();
             if (text.length > 0) {
-                // Determine the next available filename
                 let pasteIndex = 1;
                 let fileName = `paste_${pasteIndex}.txt`;
-                const existingFiles = Array.from(filesTableBody.querySelectorAll('[data-file-name]'))
-                    .map(row => row.dataset.fileName);
-
+                const existingFiles = allFiles.map(f => f.name);
                 while (existingFiles.includes(fileName)) {
                     pasteIndex++;
                     fileName = `paste_${pasteIndex}.txt`;
                 }
-
                 const blob = new Blob([text], { type: 'text/plain' });
                 const file = new File([blob], fileName, { type: 'text/plain', lastModified: new Date().getTime() });
-                uploadFile(file, fileName); // Use the uploadFile function
+                uploadFile(file);
             } else {
-                showError('Clipboard is empty or contains no text.', 'info');
+                showError('Clipboard is empty or contains no text.');
             }
         } catch (err) {
             console.error('Failed to read clipboard contents: ', err);
-            showError('Failed to read clipboard. Please grant clipboard permissions.', 'error');
+            showError('Failed to read clipboard. Please grant clipboard permissions.');
         }
     });
+
     function updateDownloadButtonLabel() {
         const all = filesTableBody.querySelectorAll('.file-select');
         const checkedCount = filesTableBody.querySelectorAll('.file-select:checked').length;
-
         downloadAllZipButton.textContent = (checkedCount === 0 || checkedCount === all.length)
             ? 'Download All as Zip'
             : `Download Selected (${checkedCount})`;
-
     }
 
-    // select files
     selectAllCheckbox.addEventListener('change', () => {
         const all = filesTableBody.querySelectorAll('.file-select');
         all.forEach(cb => cb.checked = selectAllCheckbox.checked);
         updateDownloadButtonLabel();
     });
+
     filesTableBody.addEventListener('change', (e) => {
         if (!e.target.classList.contains('file-select')) return;
-
         const all = filesTableBody.querySelectorAll('.file-select');
         const checked = filesTableBody.querySelectorAll('.file-select:checked');
-
         selectAllCheckbox.checked = (all.length === checked.length);
-        selectAllCheckbox.indeterminate =
-            checked.length > 0 && checked.length < all.length;
-
+        selectAllCheckbox.indeterminate = checked.length > 0 && checked.length < all.length;
         updateDownloadButtonLabel();
     });
+
     const downloadZip = (files) => {
-        //this is a workaround to make the user download when the request start
         const form = document.createElement('form');
         form.method = 'POST';
         form.action = '/api/zip';
         form.style.display = 'none';
-
         files.forEach(file => {
             const input = document.createElement('input');
             input.type = 'hidden';
@@ -466,21 +592,20 @@ document.addEventListener('DOMContentLoaded', () => {
             input.value = file;
             form.appendChild(input);
         });
-
         document.body.appendChild(form);
         form.submit();
         document.body.removeChild(form);
     };
 
-    downloadAllZipButton.addEventListener("click", () => {
-        const selectedCheckboxes = filesTableBody.querySelectorAll(
-            ".file-select:checked",
-        );
-        const files = [...selectedCheckboxes].map(cb => cb.dataset.fileName)
-        downloadZip(files)
-
+    downloadAllZipButton.addEventListener('click', () => {
+        const selectedCheckboxes = filesTableBody.querySelectorAll('.file-select:checked');
+        const files = [...selectedCheckboxes].map(cb => cb.dataset.fileName);
+        downloadZip(files);
     });
 
-    // Initial load of files when the page is ready
+    if (fileSearch) {
+        fileSearch.addEventListener('input', applyFilter);
+    }
+
     fetchFiles();
 });
