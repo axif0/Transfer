@@ -20,6 +20,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.TransferApp"
         android:usesCleartextTraffic="true"
+        android:extractNativeLibs="true"
         tools:targetApi="34">
         <activity
             android:name=".ui.SetupActivity"

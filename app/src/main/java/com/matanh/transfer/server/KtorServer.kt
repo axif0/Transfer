@@ -92,6 +92,15 @@ val IpAddressApprovalPlugin = createApplicationPlugin(name = "IpAddressApprovalP
         }
         val clientIp = call.request.origin.remoteHost
         logger.d("IP Approval: Checking IP $clientIp")
+
+        // Quick Tunnel traffic arrives via cloudflared → 127.0.0.1. That is NOT the
+        // friend's public IP. LAN IP approval must not block Internet Sharing on that basis.
+        // Password Basic Auth remains mandatory for public exposure.
+        if (service.shouldSkipIpApprovalForRemoteHost(clientIp)) {
+            logger.d("IP Approval: skipping for tunnel/loopback origin $clientIp")
+            return@onCall
+        }
+
         if (service.isIpPermissionRequired()) {
             val approved = service.requestIpApprovalFromClient(clientIp)
             if (!approved) {

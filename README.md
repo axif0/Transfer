@@ -30,6 +30,7 @@ Imagine you need to transfer a file between your laptop and desktop — but you 
 ## Key Features
 
 * **Effortless LAN Sharing**: Once Transfer is active, it serves files from your chosen shared folder over HTTP. Any device on the same Wi-Fi can connect using a simple web address shown in the app.
+* **Optional Internet Sharing**: Expose the same server through a temporary Cloudflare Quick Tunnel URL when you need to share beyond your LAN.
 * **Configurable Security**:
     * **IP Permissions**: By default, new devices attempting to connect trigger an "Allow/Deny" popup on your phone, giving you control over who accesses your files. This can be turned off for trusted networks.
     * **Password Protection**: For an added layer, you can secure access with a password (off by default).
@@ -64,6 +65,42 @@ Directly from [github releases](https://github.com/matan-h/Transfer/releases) (a
 
 It's designed to be that simple. Enjoy your new wireless drive.
 
+## Internet Sharing
+
+Optional mode that exposes the **same** local Ktor server to the public Internet through a [Cloudflare Quick Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/) — no VPS, no domain, no port forwarding, works behind CGNAT.
+
+```
+Android Transfer
+      |
+      +-- Ktor local HTTP server  (LAN: http://192.168.x.x:8000)
+      |
+      +-- cloudflared
+              |
+              v
+       Cloudflare Edge
+              |
+              v
+           Internet  (https://*.trycloudflare.com)
+```
+
+### How it works
+
+1. Start the server as usual (LAN still works exactly as before).
+2. Tap **Start Internet Sharing** (password optional — set one in Settings if you want).
+3. The app launches a packaged `cloudflared` process and shows the generated `https://….trycloudflare.com` URL.
+4. Share/copy the link.
+5. Tap **Stop Internet Sharing** to tear down only the tunnel (LAN keeps running), or **Stop Server** to stop both.
+
+Internet Sharing uses Cloudflare Quick Tunnels. The generated hostname is **temporary** — it changes when you start a new tunnel. It is intended for temporary sharing, not permanent hosting.
+
+### Requirements / notes
+
+* Password protection is **optional** (recommended if the link might be shared widely).
+* No public IPv4, port forward, domain, Cloudflare account, Termux, or VPS required.
+* The phone (and Transfer’s foreground service) must stay running.
+* Performance depends on your mobile/Wi‑Fi uplink; large downloads use the phone’s upload bandwidth.
+* See [docs/internet-sharing.md](docs/internet-sharing.md) for architecture, binary packaging, and licensing (`cloudflared` is Apache-2.0).
+
 ## FAQ
 ### Why does my browser show an error?
 If your browser displays errors like `ERR_SSL_PROTOCOL_ERROR`, `ERR_CONNECTION_CLOSED`, or `SSL_ERROR_RX_RECORD_TOO_LONG`, it's probably because you're trying to open the site using **HTTPS** instead of **HTTP**. To fix, change the URL from `https://...` to `http://....`
@@ -73,10 +110,13 @@ If your browser displays errors like `ERR_SSL_PROTOCOL_ERROR`, `ERR_CONNECTION_C
 Yes, you can set a [static IP](https://junipersys.com/support/article/14695) on your Android device.
 
 ### Can I use Transfer without an internet connection?
-Yes, Transfer works over your local Wi-Fi network, so an internet connection is not required. However, all devices must be connected to the same local network.
+Yes, Transfer works over your local Wi-Fi network, so an internet connection is not required. However, all devices must be connected to the same local network. (Internet Sharing is a separate optional feature and does need Internet access on the phone.)
 
 ### What happens to files I share/upload to the Transfer
 Transfer copy the files to the shared folder you set earlier.
+
+### Can friends outside my Wi‑Fi access my files?
+Only if you explicitly start **Internet Sharing**. The LAN server alone is not exposed to the Internet. A password in Settings is recommended but optional.
 
 ### What happens if you click `T0` in the app version screen
 It becomes `T1` :)
@@ -86,6 +126,7 @@ It becomes `T1` :)
 - [ ] add an option to change the port in the settings
 - [ ] fallback to hotspot IP in the display.
 - [x] automatically update the IP when Wifi changes
+- [x] optional Internet Sharing via Cloudflare Quick Tunnel
 
 ## Contributing
 
@@ -95,3 +136,5 @@ To get started, look at the `CONTRIBUTING.md` file
 
 ## License
 this repo is Licensed under the MIT license.
+
+Packaged `cloudflared` binaries are Apache-2.0 — see `THIRD_PARTY_CLOUDFLARED.md`.

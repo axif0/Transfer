@@ -37,6 +37,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.textfield.TextInputLayout
 import com.matanh.transfer.server.FileServerService
 import com.matanh.transfer.server.ServerState
+import com.matanh.transfer.server.TunnelState
 import com.matanh.transfer.ui.AboutActivity
 import com.matanh.transfer.ui.MainViewModel
 import com.matanh.transfer.ui.SettingsActivity
@@ -71,10 +72,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStopServer: ImageButton
     private lateinit var shareHandler: ShareHandler
 
+    private lateinit var cardInternetSharing: View
+    private lateinit var viewInternetStatusIndicator: View
+    private lateinit var tvInternetSharingStatus: TextView
+    private lateinit var tvPublicUrl: TextView
+    private lateinit var tvInternetSharingHint: TextView
+    private lateinit var layoutPublicUrlActions: View
+    private lateinit var btnCopyPublicUrl: Button
+    private lateinit var btnSharePublicUrl: Button
+    private lateinit var btnPublicQr: Button
+    private lateinit var btnStartInternetSharing: Button
+    private lateinit var btnStopInternetSharing: Button
+    private lateinit var btnRetryInternetSharing: Button
+
     private var fileServerService: FileServerService? = null
     private var isServiceBound = false
     private var currentSelectedFolderUri: Uri? = null
     private val ipPermissionDialogs = mutableMapOf<String, AlertDialog>()
+    private var currentPublicUrl: String? = null
 
     private var actionMode: ActionMode? = null
     private val logger = Timber.tag("MainActivity")
@@ -86,6 +101,7 @@ class MainActivity : AppCompatActivity() {
             isServiceBound = true
             fileServerService?.activityResumed() // Notify service that UI is active and ready
             observeServerState()
+            observeTunnelState()
             observeIpPermissionRequests()
             observePullRefresh()
         }
@@ -192,6 +208,18 @@ class MainActivity : AppCompatActivity() {
 
         actvIps.setAdapter(ipsAdapter)
 
+        cardInternetSharing = findViewById(R.id.cardInternetSharing)
+        viewInternetStatusIndicator = findViewById(R.id.viewInternetStatusIndicator)
+        tvInternetSharingStatus = findViewById(R.id.tvInternetSharingStatus)
+        tvPublicUrl = findViewById(R.id.tvPublicUrl)
+        tvInternetSharingHint = findViewById(R.id.tvInternetSharingHint)
+        layoutPublicUrlActions = findViewById(R.id.layoutPublicUrlActions)
+        btnCopyPublicUrl = findViewById(R.id.btnCopyPublicUrl)
+        btnSharePublicUrl = findViewById(R.id.btnSharePublicUrl)
+        btnPublicQr = findViewById(R.id.btnPublicQr)
+        btnStartInternetSharing = findViewById(R.id.btnStartInternetSharing)
+        btnStopInternetSharing = findViewById(R.id.btnStopInternetSharing)
+        btnRetryInternetSharing = findViewById(R.id.btnRetryInternetSharing)
     }
 
     private fun getIpURL(): String? {
@@ -233,6 +261,40 @@ class MainActivity : AppCompatActivity() {
                 intent.action = Constants.ACTION_STOP_SERVICE
                 startService(intent)
             }
+        }
+        btnStartInternetSharing.setOnClickListener { requestStartInternetSharing() }
+        btnStopInternetSharing.setOnClickListener {
+            fileServerService?.stopInternetSharing()
+            Toast.makeText(this, R.string.internet_sharing_stopped, Toast.LENGTH_SHORT).show()
+        }
+        btnRetryInternetSharing.setOnClickListener { requestStartInternetSharing() }
+        btnCopyPublicUrl.setOnClickListener {
+            val url = currentPublicUrl ?: return@setOnClickListener
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("Public URL", url))
+            Toast.makeText(this, R.string.link_copied, Toast.LENGTH_SHORT).show()
+        }
+        btnSharePublicUrl.setOnClickListener {
+            val url = currentPublicUrl ?: return@setOnClickListener
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, url)
+            }
+            startActivity(
+                Intent.createChooser(shareIntent, getString(R.string.share_public_url_title))
+            )
+        }
+        btnPublicQr.setOnClickListener {
+            val url = currentPublicUrl ?: return@setOnClickListener
+            showQRCodeDialog(url)
+        }
+    }
+
+    private fun requestStartInternetSharing() {
+        val service = fileServerService ?: return
+        when (val result = service.startInternetSharing()) {
+            null -> { /* starting */ }
+            else -> Toast.makeText(this, result, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -383,6 +445,7 @@ class MainActivity : AppCompatActivity() {
                             btnStartServer.visibility = View.GONE
                             btnStopServer.visibility = View.GONE
                             btnCopyIp.visibility = View.INVISIBLE
+                            cardInternetSharing.visibility = View.GONE
                         }
 
                         is ServerState.Running -> {
@@ -415,6 +478,7 @@ class MainActivity : AppCompatActivity() {
                             btnStartServer.visibility = View.GONE
                             btnStopServer.visibility = View.VISIBLE
                             btnCopyIp.visibility = View.VISIBLE
+                            cardInternetSharing.visibility = View.VISIBLE
                         }
 
                         ServerState.UserStopped,
@@ -434,6 +498,8 @@ class MainActivity : AppCompatActivity() {
                             btnStartServer.visibility = View.VISIBLE
                             btnStopServer.visibility = View.GONE
                             btnCopyIp.visibility = View.INVISIBLE
+                            cardInternetSharing.visibility = View.GONE
+                            renderTunnelUi(TunnelState.Stopped)
                         }
 
                         is ServerState.Error -> {
@@ -456,9 +522,85 @@ class MainActivity : AppCompatActivity() {
                             btnStartServer.visibility = View.VISIBLE
                             btnStopServer.visibility = View.GONE
                             btnCopyIp.visibility = View.INVISIBLE
+                            cardInternetSharing.visibility = View.GONE
+                            renderTunnelUi(TunnelState.Stopped)
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun observeTunnelState() {
+        if (!isServiceBound || fileServerService == null) return
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                fileServerService!!.tunnelState.collect { state ->
+                    logger.d("Tunnel state changed: $state")
+                    renderTunnelUi(state)
+                }
+            }
+        }
+    }
+
+    private fun renderTunnelUi(state: TunnelState) {
+        when (state) {
+            TunnelState.Stopped -> {
+                currentPublicUrl = null
+                viewInternetStatusIndicator.background = ContextCompat.getDrawable(
+                    this, R.drawable.status_indicator_stopped
+                )
+                tvInternetSharingStatus.text = getString(R.string.internet_sharing_off)
+                tvPublicUrl.visibility = View.GONE
+                tvInternetSharingHint.visibility = View.GONE
+                layoutPublicUrlActions.visibility = View.GONE
+                btnStartInternetSharing.visibility = View.VISIBLE
+                btnStopInternetSharing.visibility = View.GONE
+                btnRetryInternetSharing.visibility = View.GONE
+            }
+
+            TunnelState.Starting -> {
+                currentPublicUrl = null
+                viewInternetStatusIndicator.background = ContextCompat.getDrawable(
+                    this, R.drawable.status_indicator_running
+                )
+                tvInternetSharingStatus.text = getString(R.string.internet_sharing_starting)
+                tvPublicUrl.visibility = View.GONE
+                tvInternetSharingHint.visibility = View.GONE
+                layoutPublicUrlActions.visibility = View.GONE
+                btnStartInternetSharing.visibility = View.GONE
+                btnStopInternetSharing.visibility = View.VISIBLE
+                btnRetryInternetSharing.visibility = View.GONE
+            }
+
+            is TunnelState.Running -> {
+                currentPublicUrl = state.publicUrl
+                viewInternetStatusIndicator.background = ContextCompat.getDrawable(
+                    this, R.drawable.status_indicator_running
+                )
+                tvInternetSharingStatus.text = getString(R.string.internet_sharing_active)
+                tvPublicUrl.text = state.publicUrl
+                tvPublicUrl.visibility = View.VISIBLE
+                tvInternetSharingHint.visibility = View.VISIBLE
+                layoutPublicUrlActions.visibility = View.VISIBLE
+                btnStartInternetSharing.visibility = View.GONE
+                btnStopInternetSharing.visibility = View.VISIBLE
+                btnRetryInternetSharing.visibility = View.GONE
+            }
+
+            is TunnelState.Error -> {
+                currentPublicUrl = null
+                viewInternetStatusIndicator.background = ContextCompat.getDrawable(
+                    this, R.drawable.status_indicator_stopped
+                )
+                tvInternetSharingStatus.text =
+                    getString(R.string.internet_sharing_error) + ": " + state.message
+                tvPublicUrl.visibility = View.GONE
+                tvInternetSharingHint.visibility = View.GONE
+                layoutPublicUrlActions.visibility = View.GONE
+                btnStartInternetSharing.visibility = View.GONE
+                btnStopInternetSharing.visibility = View.GONE
+                btnRetryInternetSharing.visibility = View.VISIBLE
             }
         }
     }

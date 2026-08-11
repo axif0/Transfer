@@ -135,5 +135,34 @@
     <string name="qr_code_generation_failed">Failed to generate QR code</string>
     <string name="no_ip_available">No IP address available</string>
 
+    <!-- Internet Sharing -->
+    <string name="internet_sharing_title">Internet Sharing</string>
+    <string name="internet_sharing_off">Off</string>
+    <string name="internet_sharing_starting">Starting…</string>
+    <string name="internet_sharing_active">Active</string>
+    <string name="internet_sharing_error">Error</string>
+    <string name="start_internet_sharing">Start Internet Sharing</string>
+    <string name="stop_internet_sharing">Stop Internet Sharing</string>
+    <string name="retry_internet_sharing">Retry</string>
+    <string name="copy_public_link">Copy Link</string>
+    <string name="share_public_link">Share</string>
+    <string name="show_public_qr">QR</string>
+    <string name="link_copied">Link copied</string>
+    <string name="share_public_url_title">Share Internet link</string>
+    <string name="internet_sharing_requires_password">Internet Sharing requires password protection.</string>
+    <string name="internet_sharing_set_password">Set Password</string>
+    <string name="internet_sharing_requires_server">Start the local server before Internet Sharing.</string>
+    <string name="internet_sharing_binary_unavailable">Cloudflare Tunnel executable is unavailable.</string>
+    <string name="internet_sharing_unsupported_abi">This device architecture is not supported for Internet Sharing.</string>
+    <string name="internet_sharing_start_failed">Internet Sharing could not be started.</string>
+    <string name="internet_sharing_timeout">Cloudflare Tunnel timed out while connecting.</string>
+    <string name="internet_sharing_unexpected_exit">Internet Sharing stopped unexpectedly.</string>
+    <string name="internet_sharing_network_unavailable">Internet connection is unavailable.</string>
+    <string name="internet_sharing_stopped">Internet Sharing stopped.</string>
+    <string name="internet_sharing_password_dialog_title">Set Access Password</string>
+    <string name="internet_sharing_password_hint">Password</string>
+    <string name="file_server_notification_internet_sharing">Internet sharing active</string>
+    <string name="internet_sharing_public_hint">Anyone with the link can access your shared folder. Set a password in Settings if you want protection.</string>
+
 
 </resources>

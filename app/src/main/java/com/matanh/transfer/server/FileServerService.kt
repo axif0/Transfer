@@ -48,6 +48,17 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
     private val _serverState = MutableStateFlow<ServerState>(ServerState.UserStopped)
     val serverState: StateFlow<ServerState> = _serverState.asStateFlow()
 
+    private lateinit var cloudflareTunnel: CloudflareTunnel
+    val tunnelState: StateFlow<TunnelState>
+        get() = cloudflareTunnel.state
+
+    /**
+     * Session-only: true while user wants Internet Sharing active.
+     * Not persisted — reboot/service restart never auto-exposes publicly.
+     */
+    @Volatile
+    private var internetSharingDesired = false
+
     private val _ipPermissionRequests =
         MutableSharedFlow<IpPermissionRequest>(replay = 0, extraBufferCapacity = 1)
     val ipPermissionRequests = _ipPermissionRequests.asSharedFlow()
@@ -83,6 +94,10 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
             "com.matanh.transfer.ACTION_IP_PERMISSION_RESPONSE"
         const val EXTRA_IP_ADDRESS = "extra_ip_address"
         const val EXTRA_IP_PERMISSION_APPROVED = "extra_ip_permission_approved"
+        const val ACTION_STOP_INTERNET_SHARING =
+            "com.matanh.transfer.ACTION_STOP_INTERNET_SHARING"
+        /** Returned by [startInternetSharing] when password is not configured. */
+        const val RESULT_PASSWORD_REQUIRED = "PASSWORD_REQUIRED"
     }
 
     override fun onCreate() {
@@ -91,6 +106,13 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
         sharedPreferences.registerOnSharedPreferenceChangeListener(this) // track changes
         createNotificationChannel()
+
+        cloudflareTunnel = CloudflareTunnel(applicationContext, externalScope = serviceScope)
+        serviceScope.launch {
+            cloudflareTunnel.state.collectLatest {
+                updateNotification()
+            }
+        }
 
         networkHelper = NetworkHelper(this)
         networkHelper.register()
@@ -128,6 +150,67 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                 }
             }
         }
+    }
+
+    fun isInternetSharingEnabled(): Boolean = internetSharingDesired
+
+    /**
+     * Start Cloudflare Quick Tunnel. Requires Ktor running.
+     * Password is optional (settings); not required to start Internet Sharing.
+     * @return null on accepted start, or a localized error string.
+     */
+    fun startInternetSharing(): String? {
+        if (currentSharedFolderUri == null) {
+            return getString(R.string.shared_folder_not_selected)
+        }
+        val state = _serverState.value
+        if (state !is ServerState.Running && state !is ServerState.Starting) {
+            return getString(R.string.internet_sharing_requires_server)
+        }
+        internetSharingDesired = true
+        if (state is ServerState.Running) {
+            serviceScope.launch {
+                cloudflareTunnel.start(Constants.SERVER_PORT, tunnelErrorMessages())
+            }
+        }
+        // If Starting, tunnel starts via restartTunnelIfDesired when Running.
+        return null
+    }
+
+    fun stopInternetSharing() {
+        internetSharingDesired = false
+        serviceScope.launch {
+            cloudflareTunnel.stop()
+            updateNotification()
+        }
+    }
+
+    /**
+     * Loopback / tunnel path: cloudflared connects to 127.0.0.1, so
+     * [io.ktor.server.plugins.origin.remoteHost] is NOT the friend's public IP.
+     * LAN IP approval must not block Quick Tunnel traffic on that basis.
+     */
+    fun shouldSkipIpApprovalForRemoteHost(remoteHost: String): Boolean {
+        if (!internetSharingDesired) return false
+        val host = remoteHost.lowercase()
+        return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "0:0:0:0:0:0:0:1"
+    }
+
+    private fun tunnelErrorMessages() = TunnelErrorMessages(
+        binaryUnavailable = getString(R.string.internet_sharing_binary_unavailable),
+        unsupportedAbi = getString(R.string.internet_sharing_unsupported_abi),
+        startFailed = getString(R.string.internet_sharing_start_failed),
+        timeout = getString(R.string.internet_sharing_timeout),
+        unexpectedExit = getString(R.string.internet_sharing_unexpected_exit),
+        networkUnavailable = getString(R.string.internet_sharing_network_unavailable),
+    )
+
+    private suspend fun restartTunnelIfDesired() {
+        if (!internetSharingDesired) return
+        if (_serverState.value !is ServerState.Running) return
+        logger.i("Restarting Internet Sharing tunnel after server change")
+        cloudflareTunnel.stop()
+        cloudflareTunnel.start(Constants.SERVER_PORT, tunnelErrorMessages())
     }
 
     fun activityResumed() {
@@ -189,8 +272,14 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
             }
 
             Constants.ACTION_STOP_SERVICE -> {
+                internetSharingDesired = false
+                serviceScope.launch { cloudflareTunnel.stop() }
                 stopKtorServer(ServerState.UserStopped)
                 stopSelf()
+            }
+
+            ACTION_STOP_INTERNET_SHARING -> {
+                stopInternetSharing()
             }
 
             ACTION_IP_PERMISSION_RESPONSE -> handleIpPermissionResponse(intent)
@@ -219,6 +308,9 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
     private fun startKtorServer() {
         serviceScope.launch {
+            // Stop tunnel before Ktor restart so we never leave an orphan pointing at a dead port.
+            cloudflareTunnel.stop()
+
             _serverState.value = ServerState.Starting
             updateNotification()
 
@@ -265,6 +357,7 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                 _serverState.value = ServerState.Running(networkState, Constants.SERVER_PORT)
                 logger.i("Ktor Server started on $ipAddress:${Constants.SERVER_PORT}")
                 updateNotification()
+                restartTunnelIfDesired()
             } catch (e: Exception) {
                 val cause = e.cause;
                 if (cause is java.net.BindException){
@@ -278,6 +371,7 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                 }
                 ktorServer?.stop(1000, 2000)
                 ktorServer = null
+                internetSharingDesired = false
                 updateNotification()
             }
         }
@@ -285,6 +379,11 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
     private fun stopKtorServer(state: ServerState) {
         serviceScope.launch {
+            if (state == ServerState.UserStopped) {
+                internetSharingDesired = false
+            }
+            // Always tear down tunnel with the HTTP server so no orphan cloudflared remains.
+            cloudflareTunnel.stop()
             try {
                 ktorServer?.stop(1000, 2000)
             } catch (e: Exception) {
@@ -408,10 +507,19 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
         }
         val stopPendingIntent = PendingIntent.getService(this, 0, stopIntent, pendingIntentFlags)
 
+        val tunnel = if (::cloudflareTunnel.isInitialized) cloudflareTunnel.state.value else TunnelState.Stopped
+        val internetActive = tunnel is TunnelState.Running || tunnel is TunnelState.Starting
+
         val (title, text) = when (val state = _serverState.value) {
-            is ServerState.Running -> getString(R.string.file_server_notification_title) to getString(
-                R.string.file_server_notification_text, state.hosts.mainIp, state.port
-            )
+            is ServerState.Running -> {
+                val title = getString(R.string.file_server_notification_title)
+                val text = if (internetActive) {
+                    getString(R.string.file_server_notification_internet_sharing)
+                } else {
+                    getString(R.string.file_server_notification_text, state.hosts.mainIp, state.port)
+                }
+                title to text
+            }
 
             is ServerState.Starting -> getString(R.string.file_server_notification_title) to getString(
                 R.string.server_starting
@@ -429,11 +537,22 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
             )
         }
 
-        return NotificationCompat.Builder(this, Constants.NOTIFICATION_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, Constants.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(title).setContentText(text).setSmallIcon(R.drawable.ic_stat_name)
             .setContentIntent(pendingIntent).setOngoing(true)
             .addAction(R.drawable.ic_stop_black, getString(R.string.stop_server), stopPendingIntent)
-            .build()
+
+        if (internetActive) {
+            val stopTunnelIntent = Intent(this, FileServerService::class.java).apply {
+                action = ACTION_STOP_INTERNET_SHARING
+            }
+            val stopTunnelPending = PendingIntent.getService(
+                this, 1, stopTunnelIntent, pendingIntentFlags
+            )
+            builder.addAction(0, getString(R.string.stop_internet_sharing), stopTunnelPending)
+        }
+
+        return builder.build()
     }
 
     override fun onBind(intent: Intent): IBinder = binder
@@ -442,6 +561,10 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
         logger.d("FileServerService onDestroy")
         networkHelper.unregister()
         sharedPreferences.unregisterOnSharedPreferenceChangeListener(this)
+        internetSharingDesired = false
+        if (::cloudflareTunnel.isInitialized) {
+            cloudflareTunnel.release()
+        }
         stopKtorServer(ServerState.UserStopped) // Ensure server is stopped
         serviceJob.cancel() // Cancel all coroutines in this scope
         super.onDestroy()

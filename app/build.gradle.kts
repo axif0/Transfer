@@ -13,8 +13,8 @@ android {
         applicationId = "com.matanh.transfer"
         minSdk = 29
         targetSdk = 35
-        versionCode = 601
-        versionName = "0.6.1"
+        versionCode = 700
+        versionName = "0.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -57,6 +57,13 @@ android {
         includeInApk = false
         // Disables dependency metadata when building Android App Bundles (for Google Play)
         includeInBundle = false
+    }
+
+    // Extract libcloudflared.so to nativeLibraryDir so ProcessBuilder can exec it.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
     }
 
 }
