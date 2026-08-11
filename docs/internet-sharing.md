@@ -62,6 +62,7 @@ Idempotent: second start while Starting/Running is ignored; second stop is safe.
 | License | Apache License 2.0 (Cloudflare) |
 | ABIs | `arm64-v8a` (linux-arm64), `x86_64` (linux-amd64, emulators) |
 | Packaging | `app/src/main/jniLibs/<abi>/libcloudflared.so` |
+| Release ABI | **arm64-v8a only** (debug also packs `x86_64` for emulators) |
 | Why `.so` name | Android extracts jniLibs into `nativeLibraryDir` with **execute** permission |
 | SHA-256 arm64 | `9e2088063c8b8f71ce4b15d65e6f4b1ef345f90c9c15e762cfd2bc8fc63cf22a` |
 | SHA-256 x86_64 | `a66353004197ee4c1fcb68549203824882bba62378ad4d00d234bdb8251f1114` |
@@ -118,9 +119,10 @@ User-facing strings only (see `strings.xml`). Technical detail → Timber tag `T
 ## Security model
 
 1. Password Basic Auth is **optional** (Settings). Recommended for Internet Sharing but not required.
-2. LAN IP approval is **not** Internet security. Tunnel requests appear as `127.0.0.1` (cloudflared → localhost). Those hosts skip IP approval while Internet Sharing is desired.
-3. Quick Tunnel URL is temporary HTTPS at Cloudflare’s edge; origin on-device remains HTTP loopback.
-4. No auto-start after reboot. Desire flag is in-memory only.
+2. While Internet Sharing is on, the **tunnel path is read-only** (no upload/delete/PUT via the public link). LAN clients keep write access.
+3. LAN IP approval is **not** Internet security. Tunnel requests appear as `127.0.0.1` (cloudflared → localhost). Those hosts skip IP approval while Internet Sharing is desired.
+4. Quick Tunnel URL is temporary HTTPS at Cloudflare’s edge; origin on-device remains HTTP loopback.
+5. No auto-start after reboot. Desire flag is in-memory only.
 
 ### Public exposure audit (expected)
 

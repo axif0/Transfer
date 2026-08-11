@@ -30,7 +30,8 @@ Imagine you need to transfer a file between your laptop and desktop — but you 
 ## Key Features
 
 * **Effortless LAN Sharing**: Once Transfer is active, it serves files from your chosen shared folder over HTTP. Any device on the same Wi-Fi can connect using a simple web address shown in the app.
-* **Optional Internet Sharing**: Expose the same server through a temporary Cloudflare Quick Tunnel URL when you need to share beyond your LAN.
+* **Optional Internet Sharing**: Expose the same server through a temporary Cloudflare Quick Tunnel URL when you need to share beyond your LAN. Public links are **read-only** (download only).
+* **Quick Settings tile & widget**: Start/stop the server from the notification shade or home screen.
 * **Configurable Security**:
     * **IP Permissions**: By default, new devices attempting to connect trigger an "Allow/Deny" popup on your phone, giving you control over who accesses your files. This can be turned off for trusted networks.
     * **Password Protection**: For an added layer, you can secure access with a password (off by default).

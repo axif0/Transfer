@@ -13,8 +13,8 @@ android {
         applicationId = "com.matanh.transfer"
         minSdk = 29
         targetSdk = 35
-        versionCode = 700
-        versionName = "0.7.0"
+        versionCode = 701
+        versionName = "0.7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -40,6 +40,12 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // Keep x86_64 for emulators; arm64 for devices.
+            ndk {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(
@@ -47,7 +53,10 @@ android {
                 "proguard-rules.pro"
             )
             signingConfig = signingConfigs.getByName("release")
-
+            // Phone release APK: arm64 only — drops ~40MB cloudflared x86_64.
+            ndk {
+                abiFilters += listOf("arm64-v8a")
+            }
         }
     }
 
