@@ -119,7 +119,7 @@ User-facing strings only (see `strings.xml`). Technical detail → Timber tag `T
 ## Security model
 
 1. Password Basic Auth is **optional** (Settings). Recommended for Internet Sharing but not required.
-2. While Internet Sharing is on, the **tunnel path is read-only** (no upload/delete/PUT via the public link). LAN clients keep write access.
+2. While Internet Sharing is on, the **tunnel path defaults to download-only**. Turn on **Allow uploads from internet** so friends can send files (delete stays blocked on the public link). LAN clients keep full write access.
 3. LAN IP approval is **not** Internet security. Tunnel requests appear as `127.0.0.1` (cloudflared → localhost). Those hosts skip IP approval while Internet Sharing is desired.
 4. Quick Tunnel URL is temporary HTTPS at Cloudflare’s edge; origin on-device remains HTTP loopback.
 5. No auto-start after reboot. Desire flag is in-memory only.

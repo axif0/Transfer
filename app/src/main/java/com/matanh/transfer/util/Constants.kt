@@ -12,4 +12,6 @@ object Constants {
     const val EXTRA_FOLDER_URI = "FOLDER_URI"
     /** Written by FileServerService so QS tile / widget can show active state. */
     const val PREF_SERVER_ACTIVE = "server_active"
+    /** When true, public Internet Sharing link accepts uploads (delete still blocked). */
+    const val PREF_INTERNET_ALLOW_UPLOAD = "internet_allow_upload"
 }

@@ -338,16 +338,19 @@ background-color: var(--error-color);
     border-color: var(--error-color);
 }
 .header-container {
-    display: flex; /* Enable Flexbox */
-    justify-content: space-between; /* Puts space between the h2 and the button div */
-    align-items: center; /* Vertically aligns items in the middle */
-    margin-bottom: 1rem; /* Maintains the spacing below the header */
-    padding: 0 15px; /* Add some padding to the sides */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
 }
 
 #files-actions {
-    /* Remove inline styles here, flexbox handles alignment */
-    margin-bottom: 0; /* Reset margin if inherited from elsewhere */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
 }
 
 /* Styling for the Download All as Zip button */
@@ -639,19 +642,11 @@ footer {
     position: sticky;
     top: 0;
     z-index: 100;
-    background: var(--background-color);
-    padding: 1rem 1rem 0.75rem;
-    margin: 0;
-    border-bottom: 1px solid var(--divider-color);
-    box-shadow: 0 2px 8px var(--shadow-light);
-}
-
-.sticky-header h1 {
-    margin-bottom: 0.25rem;
+    /* keep gradient from header{} — do not override with missing --background-color */
 }
 
 .sticky-header p {
-    margin: 0;
+    margin: 0.35rem 0 0;
     font-size: 0.95rem;
 }
 
@@ -660,7 +655,7 @@ footer {
     color: #664d03;
     text-align: center;
     padding: 0.65rem 1rem;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     border-bottom: 1px solid #ffecb5;
 }
 
@@ -670,28 +665,26 @@ body.dark-mode .readonly-banner {
     border-bottom-color: #5a4a28;
 }
 
-body.readonly-mode #upload-section,
-body.readonly-mode #fab-upload,
-body.readonly-mode .delete-icon,
-body.readonly-mode #paste-button {
+body.no-upload #upload-section,
+body.no-upload #fab-upload,
+body.no-upload #paste-button {
+    display: none !important;
+}
+
+body.no-delete .delete-icon {
     display: none !important;
 }
 
 .file-search {
-    padding: 0.5rem 0.75rem;
+    padding: 0.55rem 0.75rem;
     border: 1px solid var(--divider-color);
     border-radius: 8px;
-    background: var(--card-background);
+    background: var(--app-background);
     color: var(--text-primary);
     font-size: 0.95rem;
-    min-width: 10rem;
-}
-
-#files-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    align-items: center;
+    min-width: 0;
+    flex: 1 1 10rem;
+    box-sizing: border-box;
 }
 
 .fab-upload {
@@ -716,6 +709,8 @@ body.readonly-mode #paste-button {
     display: grid;
     grid-template-columns: 1fr;
     gap: 0.75rem;
+    width: 100%;
+    min-width: 0;
 }
 
 .file-card {
@@ -725,8 +720,11 @@ body.readonly-mode #paste-button {
     padding: 0.9rem;
     border: 1px solid var(--divider-color);
     border-radius: 10px;
-    background: var(--card-background);
+    background: var(--app-background);
     box-shadow: 0 2px 6px var(--shadow-light);
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
 }
 
 .file-card-thumb {
@@ -753,6 +751,7 @@ body.readonly-mode #paste-button {
 .file-card-body {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
 }
 
 .file-card-name {
@@ -773,6 +772,11 @@ body.readonly-mode #paste-button {
     display: flex;
     gap: 0.35rem;
     flex-wrap: wrap;
+}
+
+.file-card-actions .action-icons-container {
+    justify-content: flex-start;
+    width: auto;
 }
 
 .preview-modal {
@@ -811,7 +815,7 @@ body.readonly-mode #paste-button {
     word-break: break-word;
     max-height: 70vh;
     overflow: auto;
-    background: var(--background-color);
+    background: var(--app-background);
     padding: 1rem;
     border-radius: 8px;
     font-size: 0.9rem;
@@ -821,22 +825,15 @@ body.readonly-mode #paste-button {
     margin-top: 0.5rem;
 }
 
-@media (max-width: 768px) {
-    .desktop-only { display: none !important; }
-    .mobile-only { display: grid !important; }
-    body:not(.readonly-mode) .fab-upload { display: flex; align-items: center; justify-content: center; }
-    #upload-section { display: none; }
-    .sticky-header { padding-top: 0.75rem; }
-    main { margin-top: 0.5rem; }
-}
-
 .transfer-progress-dock {
     position: sticky;
     bottom: 4.5rem;
     z-index: 80;
-    max-width: 1100px;
+    max-width: 1200px;
     margin: 0 auto;
     padding: 0 1rem;
+    box-sizing: border-box;
+    width: 100%;
 }
 
 .transfer-progress-dock:empty {
@@ -846,5 +843,89 @@ body.readonly-mode #paste-button {
 @media (min-width: 769px) {
     .transfer-progress-dock {
         bottom: 1rem;
+    }
+}
+
+@media (max-width: 768px) {
+    body {
+        overflow-x: hidden;
+    }
+
+    .desktop-only { display: none !important; }
+    .mobile-only { display: grid !important; }
+
+    body:not(.no-upload) .fab-upload {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    #upload-section { display: none; }
+
+    header.sticky-header {
+        padding: 1rem 0.85rem 0.85rem;
+    }
+
+    header.sticky-header h1 {
+        font-size: 1.75rem;
+    }
+
+    main {
+        margin: 0.75rem auto 1.25rem;
+        padding: 0 0.75rem;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    section {
+        padding: 1rem;
+        margin-bottom: 1rem;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+
+    #files-header-container.header-container {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+    }
+
+    #files-header-container h2 {
+        margin-bottom: 0;
+        padding-bottom: 0.35rem;
+        width: 100%;
+    }
+
+    #files-actions {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+    }
+
+    .file-search {
+        width: 100%;
+        flex: none;
+    }
+
+    #download-all-zip-button {
+        width: 100%;
+        white-space: normal;
+        text-align: center;
+    }
+
+    .files-cards {
+        width: 100%;
+    }
+
+    .file-card {
+        padding: 0.75rem;
+    }
+
+    .transfer-progress-dock {
+        padding: 0 0.75rem;
+        bottom: 5rem;
     }
 }

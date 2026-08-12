@@ -87,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnStartInternetSharing: Button
     private lateinit var btnStopInternetSharing: Button
     private lateinit var btnRetryInternetSharing: Button
+    private lateinit var switchAllowInternetUpload: androidx.appcompat.widget.SwitchCompat
 
     private lateinit var cardTransferProgress: View
     private lateinit var tvTransferProgressDetail: TextView
@@ -232,6 +233,7 @@ class MainActivity : AppCompatActivity() {
         btnStartInternetSharing = findViewById(R.id.btnStartInternetSharing)
         btnStopInternetSharing = findViewById(R.id.btnStopInternetSharing)
         btnRetryInternetSharing = findViewById(R.id.btnRetryInternetSharing)
+        switchAllowInternetUpload = findViewById(R.id.switchAllowInternetUpload)
 
         cardTransferProgress = findViewById(R.id.cardTransferProgress)
         tvTransferProgressDetail = findViewById(R.id.tvTransferProgressDetail)
@@ -286,6 +288,18 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.internet_sharing_stopped, Toast.LENGTH_SHORT).show()
         }
         btnRetryInternetSharing.setOnClickListener { requestStartInternetSharing() }
+        switchAllowInternetUpload.isChecked =
+            getSharedPreferences(Constants.SHARED_PREFS_NAME, MODE_PRIVATE)
+                .getBoolean(Constants.PREF_INTERNET_ALLOW_UPLOAD, false)
+        updateInternetUploadHint()
+        switchAllowInternetUpload.setOnCheckedChangeListener { _, checked ->
+            fileServerService?.setAllowInternetUpload(checked)
+                ?: getSharedPreferences(Constants.SHARED_PREFS_NAME, MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(Constants.PREF_INTERNET_ALLOW_UPLOAD, checked)
+                    .apply()
+            updateInternetUploadHint()
+        }
         btnCopyPublicUrl.setOnClickListener {
             val url = currentPublicUrl ?: return@setOnClickListener
             val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
@@ -605,6 +619,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateInternetUploadHint() {
+        tvInternetSharingHint.setText(
+            if (switchAllowInternetUpload.isChecked) R.string.internet_sharing_upload_on_hint
+            else R.string.internet_sharing_upload_off_hint
+        )
+    }
+
     private fun renderTunnelUi(state: TunnelState) {
         when (state) {
             TunnelState.Stopped -> {
@@ -646,6 +667,7 @@ class MainActivity : AppCompatActivity() {
                 layoutInternetDetails.visibility = View.VISIBLE
                 tvPublicUrl.text = state.publicUrl
                 tvPublicUrl.visibility = View.VISIBLE
+                updateInternetUploadHint()
                 tvInternetSharingHint.visibility = View.VISIBLE
                 layoutPublicUrlActions.visibility = View.VISIBLE
                 btnStartInternetSharing.visibility = View.GONE

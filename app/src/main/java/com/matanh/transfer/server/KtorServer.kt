@@ -134,11 +134,22 @@ val InternetSharingReadOnlyPlugin = createApplicationPlugin(name = "InternetShar
         if (method == HttpMethod.Post && (path == "/api/zip" || path.endsWith("/zip"))) {
             return@onCall
         }
+        // Optional: allow friend uploads when toggle is on (delete still blocked).
+        if (service.allowsInternetUpload() &&
+            method == HttpMethod.Post &&
+            (path == "/api/upload" || path.endsWith("/upload"))
+        ) {
+            return@onCall
+        }
 
         logger.w("Internet Sharing read-only: blocked $method $path from $clientIp")
         call.respond(
             HttpStatusCode.Forbidden,
-            "Internet Sharing is read-only. Upload and delete are disabled on the public link."
+            if (service.allowsInternetUpload()) {
+                "Delete is disabled on the public link."
+            } else {
+                "Internet Sharing is read-only. Turn on “Allow uploads” in the app to let friends send files."
+            }
         )
     }
 }
@@ -514,7 +525,17 @@ fun Application.ktorServer(
                                 )
                             }
                         logger.d("Files list: $filesList")
-                        call.respond(FileListResponse(filesList))
+                        val clientIp = call.request.origin.remoteHost
+                        val tunnelClient = fileServerService.isInternetSharingReadOnlyFor(clientIp)
+                        val canUpload = !tunnelClient || fileServerService.allowsInternetUpload()
+                        val canDelete = !tunnelClient
+                        call.respond(
+                            FileListResponse(
+                                files = filesList,
+                                canUpload = canUpload,
+                                canDelete = canDelete,
+                            )
+                        )
                     } catch (e: Exception) {
                         logger.e("Error listing files")
                         call.respond(
@@ -718,7 +739,11 @@ data class FileInfo(
 )
 
 @Serializable
-data class FileListResponse(val files: List<FileInfo>)
+data class FileListResponse(
+    val files: List<FileInfo>,
+    val canUpload: Boolean = true,
+    val canDelete: Boolean = true,
+)
 
 @Serializable
 data class ErrorResponse(val error: String)

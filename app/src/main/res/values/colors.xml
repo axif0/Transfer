@@ -37,5 +37,8 @@
 
     <color name="button_text">#1976D2</color>
 
+    <color name="widget_text_primary">@color/text_color_primary_light</color>
+    <color name="widget_text_secondary">@color/text_color_secondary_light</color>
+
     <!-- Stub definitions so that values-night entries have matching base entries -->
 </resources>

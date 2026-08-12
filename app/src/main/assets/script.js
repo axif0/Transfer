@@ -26,11 +26,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const doNotAskAgainCheckbox = document.getElementById('do-not-ask-again');
 
     let allFiles = [];
-    const isPublicTunnel = /\.trycloudflare\.com$/i.test(location.hostname);
+    let canUpload = true;
+    let canDelete = true;
 
-    if (isPublicTunnel) {
-        document.body.classList.add('readonly-mode');
-        readonlyBanner.hidden = false;
+    function applyWriteMode() {
+        document.body.classList.toggle('no-upload', !canUpload);
+        document.body.classList.toggle('no-delete', !canDelete);
+        readonlyBanner.hidden = canUpload;
     }
 
     function applyTheme(theme) {
@@ -265,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         actionIconsContainer.appendChild(downloadLink);
 
-        if (!isPublicTunnel) {
+        if (canDelete) {
             const deleteButton = document.createElement('button');
             deleteButton.className = 'icon-button delete-icon';
             deleteButton.title = `Delete ${file.name}`;
@@ -298,6 +300,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const data = await response.json();
             allFiles = data.files || [];
+            canUpload = data.canUpload !== false;
+            canDelete = data.canDelete !== false;
+            applyWriteMode();
             applyFilter();
         } catch (error) {
             console.error('Failed to fetch files:', error);
@@ -401,7 +406,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function confirmDeleteFile(fileName) {
-        if (isPublicTunnel) return;
+        if (!canDelete) return;
         const doNotAskAgain = localStorage.getItem('doNotAskAgainDelete') === 'true';
         if (doNotAskAgain) {
             deleteFile(fileName);
@@ -445,7 +450,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function openFilePicker() {
-        if (isPublicTunnel) return;
+        if (!canUpload) return;
         fileInput.click();
     }
 
@@ -472,7 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
     dropZone.addEventListener('drop', (event) => {
         event.preventDefault();
         dropZone.classList.remove('dragover');
-        if (isPublicTunnel) return;
+        if (!canUpload) return;
         const files = event.dataTransfer.files;
         if (files.length > 0) {
             if (!([...event.dataTransfer.items].every(item => item.webkitGetAsEntry()?.isFile))) {
@@ -494,7 +499,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function uploadFile(file) {
-        if (isPublicTunnel) return;
+        if (!canUpload) return;
         const formData = new FormData();
         formData.append('file', file, file.name);
 
@@ -534,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     pasteButton.addEventListener('click', async () => {
-        if (isPublicTunnel) return;
+        if (!canUpload) return;
         try {
             const text = await navigator.clipboard.readText();
             if (text.length > 0) {

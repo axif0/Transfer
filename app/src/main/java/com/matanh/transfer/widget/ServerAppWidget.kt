@@ -49,6 +49,10 @@ class ServerAppWidget : AppWidgetProvider() {
         fun updateWidget(context: Context, mgr: AppWidgetManager, widgetId: Int) {
             val active = ServerRemoteControl.isServerActive(context)
             val views = RemoteViews(context.packageName, R.layout.widget_server_control)
+            views.setImageViewResource(
+                R.id.ivWidgetStatus,
+                if (active) R.drawable.status_indicator_running else R.drawable.status_indicator_stopped
+            )
             views.setTextViewText(
                 R.id.tvWidgetStatus,
                 context.getString(
@@ -58,7 +62,7 @@ class ServerAppWidget : AppWidgetProvider() {
             views.setTextViewText(
                 R.id.btnWidgetToggle,
                 context.getString(
-                    if (active) R.string.stop_server else R.string.start_server
+                    if (active) R.string.widget_action_stop else R.string.widget_action_start
                 )
             )
             val toggleIntent = Intent(context, ServerAppWidget::class.java).apply {

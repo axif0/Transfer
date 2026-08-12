@@ -162,15 +162,20 @@
     <string name="internet_sharing_password_dialog_title">Set Access Password</string>
     <string name="internet_sharing_password_hint">Password</string>
     <string name="file_server_notification_internet_sharing">Internet sharing active</string>
-    <string name="internet_sharing_public_hint">Public link is read-only (download only). Anyone with the link can download. Set a password in Settings for extra protection.</string>
+    <string name="internet_sharing_public_hint">Anyone with the link can download. Uploads off unless “Allow uploads from internet” is on. Set a password in Settings for extra protection.</string>
+    <string name="internet_allow_upload">Allow uploads from internet</string>
+    <string name="internet_sharing_upload_on_hint">Friends can upload via the public link. Delete stays disabled on the link.</string>
+    <string name="internet_sharing_upload_off_hint">Public link is download-only. Turn on “Allow uploads from internet” so friends can send files.</string>
 
     <string name="qs_tile_label">Transfer Server</string>
     <string name="qs_tile_start">Start Transfer</string>
     <string name="qs_tile_stop">Stop Transfer</string>
-    <string name="widget_label">Transfer Server</string>
+    <string name="widget_label">Transfer</string>
     <string name="widget_description">Start or stop the Transfer file server</string>
-    <string name="widget_status_running">Server running</string>
-    <string name="widget_status_stopped">Server stopped</string>
+    <string name="widget_status_running">Running</string>
+    <string name="widget_status_stopped">Stopped</string>
+    <string name="widget_action_start">Start</string>
+    <string name="widget_action_stop">Stop</string>
 
     <string name="transfer_progress_title">Transfer in progress</string>
     <string name="transfer_direction_download">Downloading</string>

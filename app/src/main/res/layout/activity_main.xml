@@ -189,6 +189,13 @@ app:layout_constraintEnd_toEndOf="parent">
                 android:text="@string/start_internet_sharing"/>
         </LinearLayout>
 
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/switchAllowInternetUpload"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/internet_allow_upload"/>
+
         <LinearLayout
             android:id="@+id/layoutInternetDetails"
             android:layout_width="match_parent"

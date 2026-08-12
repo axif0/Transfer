@@ -228,11 +228,19 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
     /**
      * When Internet Sharing is on, treat loopback clients as the public tunnel:
-     * block upload/delete/PUT (read-only). LAN IPs keep full write access.
+     * block write ops (unless [allowsInternetUpload] for upload). LAN keeps full write.
      */
     fun isInternetSharingReadOnlyFor(remoteHost: String): Boolean {
         if (!internetSharingDesired) return false
         return isLoopbackHost(remoteHost)
+    }
+
+    /** Pref: friend may upload via public link. Delete still blocked on tunnel path. */
+    fun allowsInternetUpload(): Boolean =
+        sharedPreferences.getBoolean(Constants.PREF_INTERNET_ALLOW_UPLOAD, false)
+
+    fun setAllowInternetUpload(allow: Boolean) {
+        sharedPreferences.edit { putBoolean(Constants.PREF_INTERNET_ALLOW_UPLOAD, allow) }
     }
 
     private fun isLoopbackHost(remoteHost: String): Boolean {
