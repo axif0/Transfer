@@ -1,0 +1,2 @@
+feat(ci): automate version bumping and changelog generation
+feat(media): enhance file preview and download functionality

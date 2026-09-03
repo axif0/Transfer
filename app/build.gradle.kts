@@ -13,8 +13,8 @@ android {
         applicationId = "com.matanh.transfer"
         minSdk = 29
         targetSdk = 35
-        versionCode = 703
-        versionName = "0.7.3"
+        versionCode = 704
+        versionName = "0.7.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
