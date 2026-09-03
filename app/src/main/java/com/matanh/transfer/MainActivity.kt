@@ -538,16 +538,25 @@ class MainActivity : AppCompatActivity() {
                             )
                             val hosts = state.hosts
 
-                            val entries = listOfNotNull(
-                                hosts.localIp?.let { IpEntry("WiFi:", "$it:${state.port}") },
-                                hosts.localHostname?.let {
+                            val entries = if (state.tunnelOnly) {
+                                listOf(
                                     IpEntry(
-                                        "Hostname:",
-                                        "$it:${state.port}"
+                                        getString(R.string.server_tunnel_only_label),
+                                        getString(R.string.server_tunnel_only_address),
                                     )
-                                },
-                                hosts.hotspotIp?.let { IpEntry("Hotspot:", "$it:${state.port}") }
-                            )
+                                )
+                            } else {
+                                listOfNotNull(
+                                    hosts.localIp?.let { IpEntry("WiFi:", "$it:${state.port}") },
+                                    hosts.localHostname?.let {
+                                        IpEntry(
+                                            "Hostname:",
+                                            "$it:${state.port}"
+                                        )
+                                    },
+                                    hosts.hotspotIp?.let { IpEntry("Hotspot:", "$it:${state.port}") }
+                                )
+                            }
 
                             updateIpDropdown(entries)
 
@@ -659,7 +668,13 @@ class MainActivity : AppCompatActivity() {
             }
 
             is TunnelState.Running -> {
+                val previousUrl = currentPublicUrl
                 currentPublicUrl = state.publicUrl
+                if (previousUrl != null && previousUrl != state.publicUrl) {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Public URL", state.publicUrl))
+                    Toast.makeText(this, R.string.tunnel_url_changed, Toast.LENGTH_LONG).show()
+                }
                 viewInternetStatusIndicator.background = ContextCompat.getDrawable(
                     this, R.drawable.status_indicator_running
                 )

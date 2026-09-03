@@ -17,6 +17,16 @@
             app:dialogTitle="@string/pref_dialog_title_set_password"
             app:useSimpleSummaryProvider="false"/> </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/pref_category_network">
+
+        <SwitchPreferenceCompat
+            app:key="@string/pref_key_cellular_tunnel_only"
+            app:title="@string/pref_title_cellular_tunnel_only"
+            app:summary="@string/pref_summary_cellular_tunnel_only"
+            app:defaultValue="false" />
+
+    </PreferenceCategory>
+
     <Preference
         app:key="pref_key_shared_folder"
         app:title="Shared Folder"

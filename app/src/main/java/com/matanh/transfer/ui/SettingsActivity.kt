@@ -95,6 +95,7 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
             updateFolderSummary()
+
         }
 
         private fun updatePasswordSummary(passwordPreference: EditTextPreference?) {

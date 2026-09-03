@@ -59,6 +59,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.json.JSONObject
 import timber.log.Timber
+import java.io.FileInputStream
 import java.io.OutputStream
 import java.net.URLEncoder
 import java.text.SimpleDateFormat
@@ -155,6 +156,31 @@ val InternetSharingReadOnlyPlugin = createApplicationPlugin(name = "InternetShar
 }
 private val KEY_SERVICE_PROVIDER = AttributeKey<() -> FileServerService?>("ServiceProviderKey")
 
+private fun buildDownloadHeaders(
+    fileName: String,
+    fileSize: Long,
+    etag: String,
+    range: ByteRange?,
+): Headers {
+    val disposition = ContentDisposition.Attachment
+        .withParameter(ContentDisposition.Parameters.FileName, fileName)
+        .toString()
+    return if (range != null) {
+        headersOf(
+            HttpHeaders.AcceptRanges to listOf("bytes"),
+            HttpHeaders.ETag to listOf(etag),
+            HttpHeaders.ContentDisposition to listOf(disposition),
+            HttpHeaders.ContentRange to listOf("bytes ${range.start}-${range.endInclusive}/$fileSize"),
+        )
+    } else {
+        headersOf(
+            HttpHeaders.AcceptRanges to listOf("bytes"),
+            HttpHeaders.ETag to listOf(etag),
+            HttpHeaders.ContentDisposition to listOf(disposition),
+        )
+    }
+}
+
 // --- Shared File Handling Functions ---
 suspend fun handleFileDownload(
     call: RoutingCall,
@@ -163,76 +189,86 @@ suspend fun handleFileDownload(
     fileName: String,
     progressReporter: FileServerService? = null,
 ) {
-    // 1. URL Decode filename - done automatically by the browser
-    // 2. Locate & validate
     val target = baseDocumentFile.findFile(fileName)
     if (target == null || !target.isFile || !target.canRead()) {
         return call.respond(HttpStatusCode.NotFound, "File not found: $fileName")
     }
-    // 3. Determine mime & optional length
-    val mime = ContentType.parse(target.type ?: ContentType.Application.OctetStream.toString())
-    val length = target.length().takeIf { it > 0L }
 
-    // 4. Open the Android stream once
-    val inputStream = context.contentResolver.openInputStream(target.uri)
-        ?: return call.respond(HttpStatusCode.InternalServerError, "Could not open file stream.")
+    val mime = ContentType.parse(target.type ?: ContentType.Application.OctetStream.toString())
+    val fileSize = target.length()
+    if (fileSize <= 0L) {
+        return call.respond(HttpStatusCode.InternalServerError, "Could not determine file size.")
+    }
+
+    val etag = etagFor(fileSize, target.lastModified())
+    if (call.request.headers[HttpHeaders.IfNoneMatch] == etag) {
+        return call.respond(HttpStatusCode.NotModified)
+    }
+
+    val rangeHeader = call.request.headers[HttpHeaders.Range]
+    val range = parseRangeHeader(rangeHeader, fileSize)
+    if (rangeHeader != null && range == null && rangeHeader.startsWith("bytes=", ignoreCase = true)) {
+        call.response.status(HttpStatusCode.RequestedRangeNotSatisfiable)
+        call.response.header(HttpHeaders.ContentRange, "bytes */$fileSize")
+        return call.respond("")
+    }
+
+    val startByte = range?.start ?: 0L
+    val contentLength = range?.contentLength() ?: fileSize
+    val status = if (range != null) HttpStatusCode.PartialContent else HttpStatusCode.OK
 
     val transferId = "dl-${System.nanoTime()}-$fileName"
-    // 5. Respond with full control over headers & streaming - should be fast.
     try {
-        call.respond(object : OutgoingContent.WriteChannelContent() {
+        call.respond(status, object : OutgoingContent.WriteChannelContent() {
             override val contentType: ContentType = mime
-            override val contentLength: Long? = length
-            override val headers: Headers = headersOf(
-                HttpHeaders.ContentDisposition,
-                ContentDisposition.Attachment
-                    .withParameter(ContentDisposition.Parameters.FileName, fileName)
-                    .toString()
-            )
+            override val contentLength: Long = contentLength
+            override val headers: Headers = buildDownloadHeaders(fileName, fileSize, etag, range)
 
             override suspend fun writeTo(channel: ByteWriteChannel) {
-                // Stream in a single IO-optimized coroutine
                 withContext(Dispatchers.IO) {
-                    inputStream.use { stream ->
-                        val buffer = ByteArray(256 * 1024) // 256 KB chunks
-                        var transferred = 0L
-                        var lastReport = 0L
-                        while (true) {
-                            val bytesRead = stream.read(buffer)
-                            if (bytesRead == -1) break
-                            channel.writeFully(buffer, 0, bytesRead)
-                            transferred += bytesRead
-                            if (progressReporter != null && transferred - lastReport >= 512 * 1024) {
-                                lastReport = transferred
-                                progressReporter.reportTransferProgress(
-                                    transferId,
-                                    fileName,
-                                    TransferProgress.Direction.DOWNLOAD,
-                                    transferred,
-                                    length,
-                                )
+                    val pfd = context.contentResolver.openFileDescriptor(target.uri, "r")
+                        ?: throw java.io.IOException("Could not open file descriptor")
+                    pfd.use { fd ->
+                        FileInputStream(fd.fileDescriptor).use { stream ->
+                            stream.channel.position(startByte)
+                            val buffer = ByteArray(256 * 1024)
+                            var remaining = contentLength
+                            var sent = 0L
+                            var lastReport = 0L
+                            while (remaining > 0) {
+                                val toRead = minOf(buffer.size.toLong(), remaining).toInt()
+                                val bytesRead = stream.read(buffer, 0, toRead)
+                                if (bytesRead == -1) break
+                                channel.writeFully(buffer, 0, bytesRead)
+                                remaining -= bytesRead
+                                sent += bytesRead
+                                if (progressReporter != null && sent - lastReport >= 512 * 1024) {
+                                    lastReport = sent
+                                    progressReporter.reportTransferProgress(
+                                        transferId,
+                                        fileName,
+                                        TransferProgress.Direction.DOWNLOAD,
+                                        sent,
+                                        contentLength,
+                                    )
+                                }
                             }
+                            progressReporter?.reportTransferProgress(
+                                transferId,
+                                fileName,
+                                TransferProgress.Direction.DOWNLOAD,
+                                sent,
+                                contentLength,
+                            )
                         }
-                        progressReporter?.reportTransferProgress(
-                            transferId,
-                            fileName,
-                            TransferProgress.Direction.DOWNLOAD,
-                            transferred,
-                            length,
-                        )
                     }
                 }
             }
         })
     } catch (e: Exception) {
-        logger.e("Error streaming file $fileName")
-        call.respond(
-            HttpStatusCode.InternalServerError,
-            "Error serving file: ${e.localizedMessage}"
-        )
+        logger.e(e, "Error streaming file $fileName")
     } finally {
         progressReporter?.clearTransferProgress(transferId)
-        inputStream.close()
     }
 }
 

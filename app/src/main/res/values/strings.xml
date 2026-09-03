@@ -48,6 +48,7 @@
     <string name="deny">Deny</string>
 
     <string name="pref_category_security">Security</string>
+    <string name="pref_category_network">Network</string>
     <string name="pref_title_ip_permission">Display Permission Dialog</string>
     <string name="pref_summary_ip_permission">Ask for permission for new IPs. Valid for 1 hour.</string>
     <string name="pref_title_password_protect">Password Protect</string>
@@ -56,6 +57,9 @@
     <string name="pref_dialog_title_set_password">Set Access Password</string>
     <string name="pref_key_ip_permission_enabled" translatable="false">ip_permission_enabled</string>
     <string name="pref_key_server_password" translatable="false">server_password</string>
+    <string name="pref_key_cellular_tunnel_only" translatable="false">cellular_tunnel_only</string>
+    <string name="pref_title_cellular_tunnel_only">Allow server on mobile data only</string>
+    <string name="pref_summary_cellular_tunnel_only">When Wi‑Fi is off, keep the server running for Internet Sharing over cellular. LAN access is unavailable in this mode.</string>
     <string name="password_cleared">Password protection disabled.</string>
     <string name="password_set">Password protection enabled.</string>
     <string name="folder_not_accessible_select_again">The previously selected folder is no longer accessible. Please select it again.</string>
@@ -148,6 +152,7 @@
     <string name="share_public_link">Share</string>
     <string name="show_public_qr">QR</string>
     <string name="link_copied">Link copied</string>
+    <string name="tunnel_url_changed">Public link changed — copied to clipboard. Share the new link with friends.</string>
     <string name="share_public_url_title">Share Internet link</string>
     <string name="internet_sharing_requires_password">Internet Sharing requires password protection.</string>
     <string name="internet_sharing_set_password">Set Password</string>
@@ -166,6 +171,9 @@
     <string name="internet_allow_upload">Allow uploads from internet</string>
     <string name="internet_sharing_upload_on_hint">Friends can upload via the public link. Delete stays disabled on the link.</string>
     <string name="internet_sharing_upload_off_hint">Public link is download-only. Turn on “Allow uploads from internet” so friends can send files.</string>
+    <string name="server_tunnel_only_label">Internet only</string>
+    <string name="server_tunnel_only_address">No LAN — use Internet Sharing link</string>
+    <string name="server_notification_tunnel_only">Tunnel-only on port %1$d — start Internet Sharing</string>
 
     <string name="qs_tile_label">Transfer Server</string>
     <string name="qs_tile_start">Start Transfer</string>

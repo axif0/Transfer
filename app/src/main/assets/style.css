@@ -810,6 +810,21 @@ body.no-delete .delete-icon {
     border-radius: 8px;
 }
 
+#preview-body video,
+#preview-body audio {
+    width: 100%;
+    max-height: 70vh;
+    display: block;
+    margin: 0 auto;
+    border-radius: 8px;
+    background: #000;
+}
+
+#preview-body audio {
+    max-height: none;
+    background: transparent;
+}
+
 #preview-body pre {
     white-space: pre-wrap;
     word-break: break-word;

@@ -118,6 +118,20 @@ document.addEventListener('DOMContentLoaded', () => {
         return ['txt', 'md', 'json', 'xml', 'csv', 'log', 'kt', 'java', 'js', 'ts', 'css', 'html', 'py', 'sh', 'yml', 'yaml', 'toml', 'ini', 'conf'].includes(fileExt(name));
     }
 
+    function isVideo(name) {
+        return ['mp4', 'mkv', 'webm', 'mov', 'avi', 'm4v', '3gp'].includes(fileExt(name));
+    }
+
+    function isAudio(name) {
+        return ['mp3', 'wav', 'flac', 'ogg', 'm4a', 'aac'].includes(fileExt(name));
+    }
+
+    function isPreviewable(name) {
+        return isImage(name) || isText(name) || isVideo(name) || isAudio(name);
+    }
+
+    const LARGE_DOWNLOAD_BYTES = 8 * 1024 * 1024;
+
     function typeEmoji(name) {
         const e = fileExt(name);
         if (isImage(name)) return '🖼️';
@@ -146,6 +160,20 @@ document.addEventListener('DOMContentLoaded', () => {
         progressItem.appendChild(progressStatus);
         container.prepend(progressItem);
         return { progressItem, progressBarFill, progressStatus };
+    }
+
+    function downloadFile(url, fileName, sizeBytes) {
+        if (sizeBytes >= LARGE_DOWNLOAD_BYTES) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.rel = 'noopener';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            return;
+        }
+        downloadWithProgress(url, fileName);
     }
 
     function downloadWithProgress(url, fileName) {
@@ -206,6 +234,25 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        if (isVideo(file.name)) {
+            const video = document.createElement('video');
+            video.controls = true;
+            video.preload = 'metadata';
+            video.src = file.downloadUrl;
+            video.setAttribute('playsinline', '');
+            previewBody.appendChild(video);
+            return;
+        }
+
+        if (isAudio(file.name)) {
+            const audio = document.createElement('audio');
+            audio.controls = true;
+            audio.preload = 'metadata';
+            audio.src = file.downloadUrl;
+            previewBody.appendChild(audio);
+            return;
+        }
+
         if (isText(file.name)) {
             previewBody.textContent = 'Loading…';
             fetch(file.downloadUrl)
@@ -227,6 +274,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function closePreview() {
         previewOverlay.classList.remove('active');
+        previewBody.querySelectorAll('video, audio').forEach((el) => {
+            el.pause();
+            el.removeAttribute('src');
+            el.load();
+        });
         previewBody.innerHTML = '';
     }
 
@@ -239,7 +291,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const actionIconsContainer = document.createElement('div');
         actionIconsContainer.className = 'action-icons-container';
 
-        if (isImage(file.name) || isText(file.name)) {
+        if (isPreviewable(file.name)) {
             const previewBtn = document.createElement('button');
             previewBtn.className = 'icon-button';
             previewBtn.title = `Preview ${file.name}`;
@@ -263,7 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
         `;
         downloadLink.onclick = (event) => {
             event.preventDefault();
-            downloadWithProgress(file.downloadUrl, file.name);
+            downloadFile(file.downloadUrl, file.name, file.size || 0);
         };
         actionIconsContainer.appendChild(downloadLink);
 

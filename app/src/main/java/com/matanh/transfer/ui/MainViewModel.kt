@@ -62,7 +62,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Based on your original code, it seems you have a FileUtils class for this.
             val fileList = mutableListOf<FileItem>()
             val parentDocument = DocumentFile.fromTreeUri(getApplication(), folderUri)
-            parentDocument?.listFiles()?.forEach { docFile ->
+            parentDocument?.listFiles()
+                ?.forEach { docFile ->
                 fileList.add(
                     FileItem(
                         name = docFile.name ?: "Unknown",

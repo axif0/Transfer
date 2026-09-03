@@ -24,6 +24,7 @@ data class NetworkInfo(
     val localIp: String? = null,        // e.g. 192.168.1.42
     val localHostname: String? = null,  // e.g. pixel‑2.lan
     val hotspotIp: String? = null,       // e.g. 10.0.0.1 (when acting as hotspot)
+    val hasCellular: Boolean = false,
 ) {
     val mainIp: String?
         get() =  when {
@@ -122,6 +123,7 @@ class NetworkHelper(context: Context,
             localIp = newLocalIp?.hostAddress,
             localHostname = newHostname,
             hotspotIp = newHotspot,
+            hasCellular = hasCellularConnectivity(),
         )
 
         if (newSnapshot != _networkInfo.value) {
@@ -131,6 +133,18 @@ class NetworkHelper(context: Context,
     }
     private suspend fun findHostname(addr: Inet4Address): String? = withContext(Dispatchers.IO) {
         runCatching { addr.canonicalHostName }.getOrNull()?.takeIf { it != addr.hostAddress }
+    }
+
+    private fun hasCellularConnectivity(): Boolean {
+        for (network in connectivityManager.allNetworks) {
+            val caps = connectivityManager.getNetworkCapabilities(network) ?: continue
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            ) {
+                return true
+            }
+        }
+        return false
     }
 
     /**

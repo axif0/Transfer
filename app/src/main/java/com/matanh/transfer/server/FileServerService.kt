@@ -66,6 +66,7 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
     @Volatile
     private var internetSharingDesired = false
 
+
     private val _ipPermissionRequests =
         MutableSharedFlow<IpPermissionRequest>(replay = 0, extraBufferCapacity = 1)
     val ipPermissionRequests = _ipPermissionRequests.asSharedFlow()
@@ -128,35 +129,59 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
         logger.d("FileServerService onCreate")
     }
 
+    private fun cellularTunnelOnlyEnabled(): Boolean =
+        sharedPreferences.getBoolean(Constants.PREF_CELLULAR_TUNNEL_ONLY, false)
+
+    private fun canRunTunnelOnly(info: NetworkInfo): Boolean =
+        cellularTunnelOnlyEnabled() && info.hasCellular
+
     private fun observeIpChanges() {
         serviceScope.launch {
             networkHelper.networkInfo.collectLatest { info ->
                 val ipAddress = info.mainIp
 
                 val currentState = _serverState.value
-                if (currentState is ServerState.Error || currentState is ServerState.UserStopped) { // ignore user stopped/error IP changes
+                if (currentState is ServerState.Error || currentState is ServerState.UserStopped) {
                     return@collectLatest
                 }
 
                 if (currentState is ServerState.AwaitNetwork || currentState is ServerState.Running) {
                     if (ipAddress != null) {
-                        if (currentState is ServerState.Running && currentState.hosts.mainIp != ipAddress) {
+                        if (currentState is ServerState.Running &&
+                            currentState.hosts.mainIp != ipAddress
+                        ) {
                             logger.i("IP address changed from ${currentState.hosts.mainIp} to $ipAddress. restarting server.")
                             startKtorServer()
-                        }
-                        else{ // ServerState.AwaitNetwork
+                        } else {
                             logger.i("IP address changed to $ipAddress.  restarting server.")
                             startKtorServer()
                         }
                         updateNotification()
+                    } else if (canKeepServerWithoutLan(currentState, info)) {
+                        if (currentState is ServerState.Running && !currentState.tunnelOnly) {
+                            logger.i("LAN lost; keeping server in tunnel-only mode.")
+                            _serverState.value = ServerState.Running(
+                                info.copy(localIp = null, localHostname = null, hotspotIp = null),
+                                currentState.port,
+                                tunnelOnly = true,
+                            )
+                            updateNotification()
+                        }
                     } else {
-                        logger.w("WiFi disconnected. Stopping server.")
-                        stopKtorServer(ServerState.AwaitNetwork) // This will also update notification
+                        logger.w("Network unavailable. Stopping server.")
+                        stopKtorServer(ServerState.AwaitNetwork)
                     }
-
                 }
             }
         }
+    }
+
+    private fun canKeepServerWithoutLan(currentState: ServerState, info: NetworkInfo): Boolean {
+        if (!canRunTunnelOnly(info)) return false
+        if (ktorServer == null) return false
+        return currentState is ServerState.Running ||
+            currentState is ServerState.AwaitNetwork ||
+            internetSharingDesired
     }
 
     fun isInternetSharingEnabled(): Boolean = internetSharingDesired
@@ -260,8 +285,12 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
     private suspend fun restartTunnelIfDesired() {
         if (!internetSharingDesired) return
         if (_serverState.value !is ServerState.Running) return
-        logger.i("Restarting Internet Sharing tunnel after server change")
-        cloudflareTunnel.stop()
+        // ponytail: Quick Tunnel URL stable while cloudflared alive; skip restart on Ktor-only bounce
+        if (cloudflareTunnel.state.value is TunnelState.Running) {
+            logger.i("Internet Sharing tunnel already running; skipping restart")
+            return
+        }
+        logger.i("Starting Internet Sharing tunnel after server change")
         cloudflareTunnel.start(Constants.SERVER_PORT, tunnelErrorMessages())
     }
 
@@ -360,8 +389,11 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
     private fun startKtorServer() {
         serviceScope.launch {
-            // Stop tunnel before Ktor restart so we never leave an orphan pointing at a dead port.
-            cloudflareTunnel.stop()
+            val keepTunnel = internetSharingDesired &&
+                cloudflareTunnel.state.value is TunnelState.Running
+            if (!keepTunnel) {
+                cloudflareTunnel.stop()
+            }
 
             _serverState.value = ServerState.Starting
             updateNotification()
@@ -389,9 +421,10 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
 
             try {
                 val networkState = networkHelper.networkInfo.value
-
                 val ipAddress = networkState.mainIp
-                if (ipAddress == null) {
+                val tunnelOnly = ipAddress == null && canRunTunnelOnly(networkState)
+
+                if (ipAddress == null && !tunnelOnly) {
                     _serverState.value = ServerState.AwaitNetwork
                     logger.e("Failed to get local IP address.")
                     setServerActivePreference(false)
@@ -409,8 +442,12 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                         start(wait = false)
                     }
 
-                _serverState.value = ServerState.Running(networkState, Constants.SERVER_PORT)
-                logger.i("Ktor Server started on $ipAddress:${Constants.SERVER_PORT}")
+                _serverState.value = ServerState.Running(networkState, Constants.SERVER_PORT, tunnelOnly)
+                if (tunnelOnly) {
+                    logger.i("Ktor Server started (tunnel-only) on port ${Constants.SERVER_PORT}")
+                } else {
+                    logger.i("Ktor Server started on $ipAddress:${Constants.SERVER_PORT}")
+                }
                 setServerActivePreference(true)
                 updateNotification()
                 restartTunnelIfDesired()
@@ -593,6 +630,9 @@ class FileServerService : Service(), SharedPreferences.OnSharedPreferenceChangeL
                         }
                     }
                     internetActive -> getString(R.string.file_server_notification_internet_sharing)
+                    state.tunnelOnly -> getString(
+                        R.string.server_notification_tunnel_only, state.port
+                    )
                     else -> getString(
                         R.string.file_server_notification_text, state.hosts.mainIp, state.port
                     )
